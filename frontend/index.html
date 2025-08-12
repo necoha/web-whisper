@@ -125,6 +125,33 @@
         font-size: 0.875rem;
       }
 
+      /* === GPU Info Display === */
+      .gpu-info-card {
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(99, 102, 241, 0.1));
+        border: 1px solid rgba(59, 130, 246, 0.3);
+        border-radius: var(--radius);
+        padding: var(--gap);
+        margin-bottom: var(--gap-lg);
+        display: flex;
+        align-items: center;
+        gap: var(--gap);
+      }
+
+      .gpu-icon {
+        font-size: 1.25rem;
+        flex-shrink: 0;
+      }
+
+      .gpu-text {
+        flex: 1;
+      }
+
+      .gpu-status {
+        font-weight: 500;
+        font-size: 0.875rem;
+        color: var(--primary);
+      }
+
       /* === Simple Action Card === */
       .action-card {
         background: var(--surface-hover);
@@ -333,6 +360,16 @@
         flex: 1;
         width: auto;
       }
+      
+      @media (max-width: 640px) {
+        .result-actions {
+          flex-direction: column;
+        }
+        
+        .result-actions .btn {
+          width: 100%;
+        }
+      }
 
       /* === Error State === */
       .error-card {
@@ -435,6 +472,14 @@
           </div>
         </div>
 
+        <!-- GPU Info Display -->
+        <div class="gpu-info-card" id="gpu-info-card">
+          <div class="gpu-icon">⚡</div>
+          <div class="gpu-text">
+            <div class="gpu-status" id="gpu-status">GPU情報を取得中...</div>
+          </div>
+        </div>
+
         <!-- Main Action Area -->
         <div class="action-card" id="action-card">
           <h2 class="action-title">音声ファイルをアップロード</h2>
@@ -482,6 +527,10 @@
             <button class="btn btn-success" id="copy-btn">
               <span>📋</span>
               コピー
+            </button>
+            <button class="btn btn-secondary" id="save-btn">
+              <span>💾</span>
+              テキスト保存
             </button>
             <button class="btn btn-secondary" id="new-btn">
               <span>🔄</span>

@@ -349,6 +349,150 @@ async fn save_temp_file(
 }
 
 #[tauri::command]
+async fn save_transcription(
+    app: tauri::AppHandle,
+    content: String,
+    original_file_name: String
+) -> Result<String, String> {
+    use tauri_plugin_dialog::{DialogExt};
+    
+    // Get file stem from original file name
+    let original_path = std::path::Path::new(&original_file_name);
+    let file_stem = original_path.file_stem()
+        .ok_or("Failed to get file stem")?
+        .to_string_lossy();
+    
+    let default_filename = format!("{}.txt", file_stem);
+    
+    // Try different approaches for file saving
+    
+    // Approach 1: Show file save dialog
+    let file_path = app
+        .dialog()
+        .file()
+        .set_title("転写テキストを保存")
+        .set_file_name(&default_filename)
+        .add_filter("テキストファイル", &["txt"])
+        .add_filter("すべてのファイル", &["*"])
+        .blocking_save_file();
+    
+    if let Some(path) = file_path {
+        // Get the actual path from FilePath
+        let path_ref = path.as_path()
+            .ok_or("Failed to get path from FilePath")?;
+        let path_buf = path_ref.to_path_buf();
+        
+        // Try standard file operations first
+        match std::fs::write(&path_buf, content.as_bytes()) {
+            Ok(_) => {
+                return Ok(path_buf.to_string_lossy().to_string());
+            }
+            Err(e) => {
+                // If that fails, save to Downloads folder
+                println!("Standard file write failed: {}, saving to Downloads folder", e);
+                return save_to_downloads(&content, &default_filename).await;
+            }
+        }
+    } else {
+        Err("Save cancelled by user".to_string())
+    }
+}
+
+// Fallback function to save to Downloads folder
+async fn save_to_downloads(content: &str, filename: &str) -> Result<String, String> {
+    use std::io::Write;
+    
+    let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/Users".to_string());
+    let downloads_dir = std::path::PathBuf::from(&home_dir).join("Downloads");
+    
+    // Ensure Downloads directory exists
+    if !downloads_dir.exists() {
+        std::fs::create_dir_all(&downloads_dir)
+            .map_err(|e| format!("Failed to create Downloads directory: {}", e))?;
+    }
+    
+    // Create unique filename if file already exists
+    let mut counter = 1;
+    let mut final_path = downloads_dir.join(filename);
+    let stem = std::path::Path::new(filename).file_stem()
+        .ok_or("Invalid filename")?
+        .to_string_lossy();
+    
+    while final_path.exists() {
+        let new_filename = format!("{}_{}.txt", stem, counter);
+        final_path = downloads_dir.join(new_filename);
+        counter += 1;
+    }
+    
+    // Write file
+    let mut file = std::fs::File::create(&final_path)
+        .map_err(|e| format!("Failed to create file in Downloads: {}", e))?;
+    
+    file.write_all(content.as_bytes())
+        .map_err(|e| format!("Failed to write file in Downloads: {}", e))?;
+    
+    Ok(format!("Downloads フォルダに保存: {}", final_path.to_string_lossy()))
+}
+
+// Direct command to save to Downloads folder
+#[tauri::command]
+async fn save_to_downloads_direct(content: String, file_name: String) -> Result<String, String> {
+    save_to_downloads(&content, &file_name).await
+}
+
+#[tauri::command]
+async fn get_gpu_info() -> Result<String, String> {
+    // Get GPU information by running the GPU detection script
+    let current_exe = env::current_exe().map_err(|e| format!("Failed to get current exe: {}", e))?;
+    let app_dir = current_exe.parent().unwrap();
+    
+    // Find backend directory
+    let backend_dir = if let Some(parent) = app_dir.parent() {
+        if let Some(grandparent) = parent.parent() {
+            let candidate1 = grandparent.join("backend");
+            let candidate2 = grandparent.join("../backend");
+            let candidate3 = PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend");
+            
+            if candidate1.join("patch_gpu.py").exists() {
+                candidate1
+            } else if candidate2.join("patch_gpu.py").exists() {
+                candidate2
+            } else {
+                candidate3
+            }
+        } else {
+            PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+        }
+    } else {
+        PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+    };
+    
+    // Get Python executable
+    let home_dir = env::var("HOME").unwrap_or_else(|_| "/Users/ktsutsum".to_string());
+    let pyenv_python_web = format!("{}/.pyenv/versions/web-whisper/bin/python", home_dir);
+    let python_cmd = if std::path::Path::new(&pyenv_python_web).exists() {
+        pyenv_python_web
+    } else {
+        "python3".to_string()
+    };
+    
+    // Run GPU detection script
+    let output = Command::new(&python_cmd)
+        .args(&["-c", "from patch_gpu import get_gpu_info; print(get_gpu_info())"])
+        .current_dir(&backend_dir)
+        .output()
+        .map_err(|e| format!("Failed to execute GPU info script: {}", e))?;
+    
+    if output.status.success() {
+        let result = String::from_utf8_lossy(&output.stdout);
+        Ok(result.trim().to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Ok(format!("GPU detection unavailable: {}", stderr.trim()))
+    }
+}
+
+#[tauri::command]
 async fn transcribe_audio(
     file_path: String,
     state: State<'_, ServerState>,
@@ -402,17 +546,28 @@ async fn transcribe_audio(
     
     let transcribe_script = backend_dir.join("transcribe_simple.py");
     
-    // Get Python executable
+    // Get Python executable with better error handling
     let home_dir = env::var("HOME").unwrap_or_else(|_| "/Users/ktsutsum".to_string());
     let pyenv_python_web = format!("{}/.pyenv/versions/web-whisper/bin/python", home_dir);
+    let pyenv_python_gui = format!("{}/.pyenv/versions/whisper-gui/bin/python", home_dir);
+    
     let python_cmd = if std::path::Path::new(&pyenv_python_web).exists() {
+        println!("Using pyenv Python (web-whisper): {}", pyenv_python_web);
         pyenv_python_web
+    } else if std::path::Path::new(&pyenv_python_gui).exists() {
+        println!("Using pyenv Python (whisper-gui): {}", pyenv_python_gui);
+        pyenv_python_gui
     } else {
+        println!("Using system Python: python3");
         "python3".to_string()
     };
     
-    println!("Using Python: {}", python_cmd);
     println!("Transcribing file: {}", file_path);
+    
+    // Verify transcription script exists
+    if !transcribe_script.exists() {
+        return Err(format!("Transcription script not found: {:?}", transcribe_script));
+    }
     
     // Call transcription script directly with proper environment
     let mut cmd = Command::new(&python_cmd);
@@ -505,6 +660,7 @@ fn main() {
     
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(server_state)
         .manage(process_state.clone())
         .invoke_handler(tauri::generate_handler![
@@ -513,6 +669,9 @@ fn main() {
             open_whisper_gui,
             save_temp_file,
             transcribe_audio,
+            save_transcription,
+            save_to_downloads_direct,
+            get_gpu_info,
             stop_whisper_server
         ])
         .setup({

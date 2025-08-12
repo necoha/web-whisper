@@ -26,8 +26,10 @@ class WebWhisperApp {
   private errorTitle: HTMLDivElement;
   private errorMessage: HTMLDivElement;
   private copyBtn: HTMLButtonElement;
+  private saveBtn: HTMLButtonElement;
   private newBtn: HTMLButtonElement;
   private retryBtn: HTMLButtonElement;
+  private gpuStatus: HTMLDivElement;
   
   private serverInfo: ServerInfo | null = null;
   private selectedFile: File | null = null;
@@ -61,6 +63,7 @@ class WebWhisperApp {
     this.resultCard = document.getElementById('result-card') as HTMLDivElement;
     this.resultContent = document.getElementById('result-content') as HTMLDivElement;
     this.copyBtn = document.getElementById('copy-btn') as HTMLButtonElement;
+    this.saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
     this.newBtn = document.getElementById('new-btn') as HTMLButtonElement;
     
     // Error elements
@@ -68,6 +71,9 @@ class WebWhisperApp {
     this.errorTitle = document.getElementById('error-title') as HTMLDivElement;
     this.errorMessage = document.getElementById('error-message') as HTMLDivElement;
     this.retryBtn = document.getElementById('retry-btn') as HTMLButtonElement;
+    
+    // GPU info element
+    this.gpuStatus = document.getElementById('gpu-status') as HTMLDivElement;
   }
 
   private setupEventListeners() {
@@ -80,6 +86,7 @@ class WebWhisperApp {
 
     // Result actions
     this.copyBtn.addEventListener('click', () => this.copyResult());
+    this.saveBtn.addEventListener('click', () => this.saveResult());
     this.newBtn.addEventListener('click', () => this.resetApp());
     this.retryBtn.addEventListener('click', () => this.retryTranscription());
 
@@ -114,6 +121,7 @@ class WebWhisperApp {
     this.updateStatus('準備完了', 'success', '音声ファイルを選択してください');
     this.hideResults();
     this.hideError();
+    await this.loadGpuInfo();
   }
 
   private handleFileSelect(event: Event) {
@@ -179,15 +187,7 @@ class WebWhisperApp {
 
     try {
       this.showProgress();
-      this.updateProgress(10, 'エンジンを準備中...');
-
-      // Check if server is running, start if not
-      if (!this.serverInfo) {
-        this.updateProgress(20, 'Whisperエンジンを起動中...');
-        this.serverInfo = await invoke<ServerInfo>('start_whisper_server');
-      }
-
-      this.updateProgress(30, 'ファイルを準備中...');
+      this.updateProgress(10, 'ファイルを準備中...');
 
       // Read file data as array buffer
       const fileData = await this.selectedFile.arrayBuffer();
@@ -200,9 +200,10 @@ class WebWhisperApp {
         fileName: this.selectedFile.name
       });
 
+      this.updateProgress(30, 'Whisperエンジンを初期化中...');
       this.updateProgress(50, '音声ファイルを処理中...');
       
-      // Start transcription with temp file path
+      // Start transcription with temp file path (direct script execution)
       const result = await invoke<string>('transcribe_audio', { 
         filePath: tempFilePath
       });
@@ -230,6 +231,60 @@ class WebWhisperApp {
       }, 2000);
     } catch (error) {
       this.showError('コピーに失敗しました', 'クリップボードへのアクセスができません');
+    }
+  }
+
+  private async saveResult() {
+    if (!this.selectedFile) {
+      this.showError('ファイル情報が見つかりません', 'もう一度転写を実行してください');
+      return;
+    }
+
+    try {
+      const content = this.resultContent.textContent || '';
+      // First try to save with dialog
+      try {
+        const savedPath = await invoke<string>('save_transcription', {
+          content: content,
+          originalFileName: this.selectedFile.name
+        });
+        
+        this.updateStatus('保存完了', 'success', savedPath);
+        
+        // Show feedback
+        const originalText = this.saveBtn.innerHTML;
+        this.saveBtn.innerHTML = '<span>✅</span> 保存済み';
+        setTimeout(() => {
+          this.saveBtn.innerHTML = originalText;
+        }, 2000);
+        return;
+      } catch (firstError) {
+        console.log('First save attempt failed:', firstError);
+        
+        // Fallback: Save directly to Downloads
+        try {
+          const downloadsPath = await invoke<string>('save_to_downloads_direct', {
+            content: content,
+            fileName: `${this.selectedFile.name.split('.')[0]}.txt`
+          });
+          
+          this.updateStatus('保存完了', 'success', downloadsPath);
+          
+          // Show feedback
+          const originalText = this.saveBtn.innerHTML;
+          this.saveBtn.innerHTML = '<span>✅</span> 保存済み';
+          setTimeout(() => {
+            this.saveBtn.innerHTML = originalText;
+          }, 2000);
+          return;
+        } catch (secondError) {
+          console.error('Downloads save also failed:', secondError);
+          throw secondError;
+        }
+      }
+    } catch (error) {
+      console.error('Save error:', error);
+      this.showError('保存に失敗しました', `エラー詳細: ${error}`);
     }
   }
 
@@ -305,6 +360,16 @@ class WebWhisperApp {
 
   private hideError() {
     this.errorCard.classList.remove('show');
+  }
+
+  private async loadGpuInfo() {
+    try {
+      const gpuInfo = await invoke<string>('get_gpu_info');
+      this.gpuStatus.textContent = gpuInfo;
+    } catch (error) {
+      console.error('Failed to load GPU info:', error);
+      this.gpuStatus.textContent = '💻 GPU情報の取得に失敗しました';
+    }
   }
 
   private updateStatus(title: string, type: 'success' | 'processing' | 'error', message?: string) {
