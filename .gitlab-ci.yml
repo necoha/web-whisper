@@ -1,4 +1,4 @@
-# GitLab CI/CD configuration for Web Whisper cross-platform build
+# GitLab CI/CD configuration for Web Whisper Windows build
 
 stages:
   - build
@@ -19,54 +19,6 @@ variables:
       - target/
       - frontend/node_modules/
 
-# Build for macOS (Universal Binary)
-build-macos:
-  stage: build
-  image: macos-12-xcode-14
-  tags:
-    - macos
-    - shared
-  <<: *cache-config
-  before_script:
-    # Install Rust
-    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    - source ~/.cargo/env
-    - rustup target add universal-apple-darwin
-    
-    # Install Node.js and pnpm
-    - curl -fsSL https://fnm.vercel.app/install | bash
-    - source ~/.bashrc
-    - fnm install 20
-    - fnm use 20
-    - npm install -g pnpm
-    
-    # Install system dependencies
-    - brew install python@3.11
-    - brew install ffmpeg
-    
-  script:
-    # Setup Python environment
-    - cd backend
-    - python3 -m venv web-whisper
-    - source web-whisper/bin/activate
-    - pip install -r requirements.txt
-    - cd ..
-    
-    # Build frontend
-    - cd frontend
-    - pnpm install --frozen-lockfile
-    - pnpm tauri build --target universal-apple-darwin
-    
-  artifacts:
-    name: "web-whisper-macos-$CI_COMMIT_SHORT_SHA"
-    paths:
-      - frontend/src-tauri/target/universal-apple-darwin/release/bundle/macos/
-      - frontend/src-tauri/target/universal-apple-darwin/release/bundle/dmg/
-    expire_in: 1 week
-  only:
-    - main
-    - develop
-    - tags
 
 # Build for Windows
 build-windows:
@@ -111,75 +63,17 @@ build-windows:
     - develop
     - tags
 
-# Build for Linux (Optional)
-build-linux:
-  stage: build
-  image: ubuntu:22.04
-  tags:
-    - linux
-    - shared
-  <<: *cache-config
-  before_script:
-    # Install system dependencies
-    - apt-get update && apt-get install -y curl build-essential
-    - apt-get install -y libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
-    - apt-get install -y python3 python3-pip python3-venv ffmpeg
-    
-    # Install Rust
-    - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    - source ~/.cargo/env
-    - rustup target add x86_64-unknown-linux-gnu
-    
-    # Install Node.js and pnpm
-    - curl -fsSL https://fnm.vercel.app/install | bash
-    - source ~/.bashrc
-    - fnm install 20
-    - fnm use 20
-    - npm install -g pnpm
-    
-  script:
-    # Setup Python environment
-    - cd backend
-    - python3 -m venv web-whisper
-    - source web-whisper/bin/activate
-    - pip install -r requirements.txt
-    - cd ..
-    
-    # Build frontend
-    - cd frontend
-    - pnpm install --frozen-lockfile
-    - pnpm tauri build --target x86_64-unknown-linux-gnu
-    
-  artifacts:
-    name: "web-whisper-linux-$CI_COMMIT_SHORT_SHA"
-    paths:
-      - frontend/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/
-      - frontend/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/
-    expire_in: 1 week
-  only:
-    - main
-    - develop
-    - tags
 
 # Package all builds
 package:
   stage: package
   image: alpine:latest
   dependencies:
-    - build-macos
     - build-windows
-    - build-linux
   before_script:
     - apk add --no-cache zip
   script:
     - mkdir -p releases
-    
-    # Package macOS
-    - if [ -d "frontend/src-tauri/target/universal-apple-darwin/release/bundle" ]; then
-        cd frontend/src-tauri/target/universal-apple-darwin/release/bundle
-        zip -r ../../../../../releases/web-whisper-macos-$CI_COMMIT_SHORT_SHA.zip .
-        cd ../../../../../
-      fi
     
     # Package Windows
     - if [ -d "frontend/src-tauri/target/x86_64-pc-windows-msvc/release/bundle" ]; then
@@ -188,12 +82,6 @@ package:
         cd ../../../../../
       fi
     
-    # Package Linux
-    - if [ -d "frontend/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle" ]; then
-        cd frontend/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle
-        zip -r ../../../../../releases/web-whisper-linux-$CI_COMMIT_SHORT_SHA.zip .
-        cd ../../../../../
-      fi
     
   artifacts:
     name: "web-whisper-all-platforms-$CI_COMMIT_SHORT_SHA"
@@ -222,23 +110,16 @@ release:
       Cross-platform speech-to-text application with Whisper AI.
 
       ### Downloads
-      - **macOS**: Universal Binary (Apple Silicon + Intel)
       - **Windows**: 64-bit installer + portable
-      - **Linux**: DEB package + AppImage
 
       ### Features
-      - MLX acceleration for Apple Silicon
       - CUDA acceleration for Windows NVIDIA GPUs
       - Simplified drag-and-drop interface
       - Multiple audio format support
       - High-accuracy Whisper Large-v3 model
     assets:
       links:
-        - name: 'macOS Universal'
-          url: '$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/download?job=package'
         - name: 'Windows 64-bit'
-          url: '$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/download?job=package'
-        - name: 'Linux x64'
           url: '$CI_PROJECT_URL/-/jobs/artifacts/$CI_COMMIT_TAG/download?job=package'
   only:
     - tags
