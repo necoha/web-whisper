@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web Whisper - 音声転写</title>
+    <style>
+      /* === Reset & Base === */
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        /* Simplified Color Scheme */
+        --bg: #0f0f0f;
+        --surface: #1a1a1a;
+        --surface-hover: #252525;
+        --primary: #3b82f6;
+        --primary-hover: #2563eb;
+        --success: #22c55e;
+        --warning: #f59e0b;
+        --error: #ef4444;
+        --text: #ffffff;
+        --text-muted: #9ca3af;
+        --border: #374151;
+        
+        /* Spacing */
+        --gap: 1rem;
+        --gap-lg: 2rem;
+        
+        /* Border radius */
+        --radius: 12px;
+        --radius-lg: 16px;
+        
+        /* Shadows */
+        --shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--gap);
+      }
+
+      /* === Main Container === */
+      .app {
+        width: 100%;
+        max-width: 600px;
+        background: var(--surface);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-lg);
+        overflow: hidden;
+      }
+
+      /* === Header === */
+      .header {
+        background: linear-gradient(135deg, var(--primary) 0%, #6366f1 100%);
+        padding: var(--gap-lg);
+        text-align: center;
+      }
+
+      .title {
+        font-size: 1.875rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+      }
+
+      .subtitle {
+        opacity: 0.9;
+        font-size: 1rem;
+        font-weight: 400;
+      }
+
+      /* === Content === */
+      .content {
+        padding: var(--gap-lg);
+      }
+
+      /* === Status Display === */
+      .status-card {
+        background: var(--surface-hover);
+        border-radius: var(--radius);
+        padding: var(--gap);
+        margin-bottom: var(--gap-lg);
+        border-left: 4px solid var(--success);
+        display: flex;
+        align-items: center;
+        gap: var(--gap);
+      }
+
+      .status-card.warning {
+        border-color: var(--warning);
+      }
+
+      .status-card.error {
+        border-color: var(--error);
+      }
+
+      .status-icon {
+        font-size: 1.5rem;
+        flex-shrink: 0;
+      }
+
+      .status-text {
+        flex: 1;
+      }
+
+      .status-title {
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+      }
+
+      .status-message {
+        color: var(--text-muted);
+        font-size: 0.875rem;
+      }
+
+      /* === Simple Action Card === */
+      .action-card {
+        background: var(--surface-hover);
+        border-radius: var(--radius);
+        padding: var(--gap-lg);
+        text-align: center;
+        margin-bottom: var(--gap-lg);
+      }
+
+      .action-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin-bottom: var(--gap);
+      }
+
+      .action-description {
+        color: var(--text-muted);
+        margin-bottom: var(--gap-lg);
+        line-height: 1.6;
+      }
+
+      /* === File Drop Zone === */
+      .drop-zone {
+        border: 2px dashed var(--border);
+        border-radius: var(--radius);
+        padding: var(--gap-lg);
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        background: var(--surface);
+        margin-bottom: var(--gap);
+        min-height: 120px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .drop-zone:hover,
+      .drop-zone.dragover {
+        border-color: var(--primary);
+        background: rgba(59, 130, 246, 0.1);
+        transform: translateY(-2px);
+      }
+
+      .drop-zone.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        pointer-events: none;
+      }
+
+      .drop-icon {
+        font-size: 3rem;
+        margin-bottom: 0.5rem;
+        opacity: 0.7;
+      }
+
+      .drop-text {
+        font-weight: 500;
+        margin-bottom: 0.25rem;
+      }
+
+      .drop-hint {
+        color: var(--text-muted);
+        font-size: 0.875rem;
+      }
+
+      /* === Button Styles === */
+      .btn {
+        background: var(--primary);
+        color: white;
+        border: none;
+        padding: 0.875rem 2rem;
+        border-radius: var(--radius);
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-height: 52px;
+      }
+
+      .btn:hover:not(:disabled) {
+        background: var(--primary-hover);
+        transform: translateY(-1px);
+      }
+
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .btn-secondary {
+        background: var(--surface-hover);
+        border: 1px solid var(--border);
+      }
+
+      .btn-secondary:hover:not(:disabled) {
+        background: var(--border);
+      }
+
+      .btn-success {
+        background: var(--success);
+      }
+
+      .btn-success:hover:not(:disabled) {
+        background: #16a34a;
+      }
+
+      /* === Loading Animation === */
+      .loading {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top: 2px solid white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      /* === Progress Bar === */
+      .progress-container {
+        margin: var(--gap) 0;
+      }
+
+      .progress-bar {
+        width: 100%;
+        height: 8px;
+        background: var(--border);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--primary), var(--success));
+        transition: width 0.3s ease;
+        width: 0%;
+      }
+
+      .progress-text {
+        text-align: center;
+        margin-top: 0.5rem;
+        color: var(--text-muted);
+        font-size: 0.875rem;
+      }
+
+      /* === Result Display === */
+      .result-card {
+        background: var(--surface-hover);
+        border-radius: var(--radius);
+        padding: var(--gap-lg);
+        margin-bottom: var(--gap);
+        display: none;
+      }
+
+      .result-card.show {
+        display: block;
+      }
+
+      .result-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--gap);
+        padding-bottom: var(--gap);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .result-title {
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .result-content {
+        background: var(--surface);
+        border-radius: var(--radius);
+        padding: var(--gap);
+        font-family: 'SF Mono', Monaco, monospace;
+        font-size: 0.875rem;
+        line-height: 1.6;
+        max-height: 300px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+
+      .result-actions {
+        display: flex;
+        gap: var(--gap);
+        margin-top: var(--gap);
+      }
+
+      .result-actions .btn {
+        flex: 1;
+        width: auto;
+      }
+
+      /* === Error State === */
+      .error-card {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid var(--error);
+        border-radius: var(--radius);
+        padding: var(--gap-lg);
+        text-align: center;
+        display: none;
+      }
+
+      .error-card.show {
+        display: block;
+      }
+
+      .error-icon {
+        font-size: 3rem;
+        color: var(--error);
+        margin-bottom: var(--gap);
+      }
+
+      .error-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--error);
+        margin-bottom: 0.5rem;
+      }
+
+      .error-message {
+        color: var(--text-muted);
+        margin-bottom: var(--gap-lg);
+        line-height: 1.6;
+      }
+
+      /* === Hidden Elements === */
+      .hidden {
+        display: none !important;
+      }
+
+      /* === File Input === */
+      #file-input {
+        display: none;
+      }
+
+      /* === Responsive === */
+      @media (max-width: 480px) {
+        body {
+          padding: 0.5rem;
+        }
+
+        .header {
+          padding: var(--gap);
+        }
+
+        .content {
+          padding: var(--gap);
+        }
+
+        .title {
+          font-size: 1.5rem;
+        }
+
+        .result-actions {
+          flex-direction: column;
+        }
+      }
+
+      /* === Custom Scrollbar === */
+      .result-content::-webkit-scrollbar {
+        width: 6px;
+      }
+
+      .result-content::-webkit-scrollbar-track {
+        background: var(--border);
+        border-radius: 3px;
+      }
+
+      .result-content::-webkit-scrollbar-thumb {
+        background: var(--primary);
+        border-radius: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <!-- Header -->
+      <div class="header">
+        <h1 class="title">🎤 Web Whisper</h1>
+        <p class="subtitle">簡単音声転写 - ファイルを選ぶだけ</p>
+      </div>
+
+      <!-- Content -->
+      <div class="content">
+        <!-- Status Display -->
+        <div class="status-card" id="status-card">
+          <div class="status-icon" id="status-icon">✅</div>
+          <div class="status-text">
+            <div class="status-title" id="status-title">準備完了</div>
+            <div class="status-message" id="status-message">音声ファイルを選択してください</div>
+          </div>
+        </div>
+
+        <!-- Main Action Area -->
+        <div class="action-card" id="action-card">
+          <h2 class="action-title">音声ファイルをアップロード</h2>
+          <p class="action-description">
+            MP3、WAV、M4A、FLAC形式の音声ファイルをドラッグ&ドロップするか、<br>
+            クリックしてファイルを選択してください
+          </p>
+
+          <!-- File Drop Zone -->
+          <div class="drop-zone" id="drop-zone">
+            <div class="drop-icon">📁</div>
+            <div class="drop-text">ファイルをここにドロップ</div>
+            <div class="drop-hint">または クリックして選択</div>
+          </div>
+
+          <input type="file" id="file-input" accept=".mp3,.wav,.m4a,.flac,.mp4,.avi,.mov,.mkv">
+
+          <!-- Action Button -->
+          <button class="btn" id="action-btn" disabled>
+            <span id="btn-icon">🚀</span>
+            <span id="btn-text">ファイルを選択してください</span>
+          </button>
+
+          <!-- Progress Bar -->
+          <div class="progress-container hidden" id="progress-container">
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="progress-text" id="progress-text">準備中...</div>
+          </div>
+        </div>
+
+        <!-- Result Display -->
+        <div class="result-card" id="result-card">
+          <div class="result-header">
+            <h3 class="result-title">
+              <span>📝</span>
+              転写結果
+            </h3>
+          </div>
+          <div class="result-content" id="result-content">
+            転写結果がここに表示されます...
+          </div>
+          <div class="result-actions">
+            <button class="btn btn-success" id="copy-btn">
+              <span>📋</span>
+              コピー
+            </button>
+            <button class="btn btn-secondary" id="new-btn">
+              <span>🔄</span>
+              新しい転写
+            </button>
+          </div>
+        </div>
+
+        <!-- Error Display -->
+        <div class="error-card" id="error-card">
+          <div class="error-icon">⚠️</div>
+          <h3 class="error-title" id="error-title">エラーが発生しました</h3>
+          <p class="error-message" id="error-message">
+            申し訳ありませんが、処理中に問題が発生しました。
+          </p>
+          <button class="btn btn-secondary" id="retry-btn">
+            <span>🔄</span>
+            もう一度試す
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

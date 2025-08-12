@@ -1,0 +1,40 @@
+{
+  "productName": "Web Whisper",
+  "version": "0.1.0",
+  "identifier": "com.webwhisper.speechtotext",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Web Whisper - Speech to Text",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    },
+    "process": {
+      "all": true
+    }
+  }
+}
