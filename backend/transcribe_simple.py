@@ -11,9 +11,21 @@ from patch_gpu import auto_engine_detailed
 def transcribe_file(file_path: str, language: str = "auto", output_format: str = "text"):
     """Transcribe an audio file and return the result."""
     try:
-        # Initialize the transcription engine
+        # Initialize the transcription engine (suppress GPU messages)
         print(f"Loading transcription engine...", file=sys.stderr)
-        engine = auto_engine_detailed()
+        
+        # Capture GPU info messages to stderr to avoid mixing with transcription result
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+        
+        gpu_output = io.StringIO()
+        with redirect_stdout(gpu_output), redirect_stderr(gpu_output):
+            engine = auto_engine_detailed()
+        
+        # Print GPU info to stderr only
+        gpu_messages = gpu_output.getvalue()
+        if gpu_messages:
+            print(gpu_messages.strip(), file=sys.stderr)
         
         print(f"Transcribing: {file_path}", file=sys.stderr)
         

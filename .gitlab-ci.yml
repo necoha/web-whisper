@@ -2,12 +2,14 @@
 
 stages:
   - build
+  - test-build
   - package
   - release
 
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/.cargo
   PNPM_CACHE_DIR: $CI_PROJECT_DIR/.pnpm-store
+  RUST_BACKTRACE: 1
 
 # Cache configuration
 .cache-template: &cache-config
@@ -29,15 +31,35 @@ build-windows:
     - shared
   <<: *cache-config
   before_script:
-    # Install Chocolatey
-    - Set-ExecutionPolicy Bypass -Scope Process -Force
-    - '[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072'
-    - iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+    # Use PowerShell
+    - $ErrorActionPreference = "Stop"
     
-    # Install dependencies
-    - choco install -y nodejs python rust ffmpeg visualstudio2022buildtools
-    - npm install -g pnpm
+    # Install dependencies if not cached
+    - |
+      if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+        Write-Host "Installing Node.js..."
+        Invoke-WebRequest -Uri "https://nodejs.org/dist/v20.17.0/node-v20.17.0-x64.msi" -OutFile "node.msi"
+        Start-Process msiexec.exe -Wait -ArgumentList '/i node.msi /quiet'
+        Remove-Item node.msi
+      }
+    
+    - |
+      if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
+        Write-Host "Installing pnpm..."
+        npm install -g pnpm
+      }
+    
+    - |
+      if (-not (Get-Command rustc -ErrorAction SilentlyContinue)) {
+        Write-Host "Installing Rust..."
+        Invoke-WebRequest -Uri "https://win.rustup.rs/x86_64" -OutFile "rustup-init.exe"
+        .\rustup-init.exe -y --default-toolchain stable
+        $env:PATH += ";$env:USERPROFILE\.cargo\bin"
+        Remove-Item rustup-init.exe
+      }
+    
     - rustup target add x86_64-pc-windows-msvc
+    - refreshenv
     
   script:
     # Setup Python environment

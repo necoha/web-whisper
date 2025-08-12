@@ -93,6 +93,34 @@ def auto_engine():
         except ImportError:
             raise RuntimeError(f"No suitable backend available for {system}")
 
+def get_gpu_info():
+    """Get GPU information for display in the UI"""
+    system = platform.system()
+    machine = platform.machine()
+    
+    if system == "Darwin" and machine.startswith("arm"):
+        try:
+            import mlx.core as mx
+            # Test MLX availability
+            test_array = mx.array([1.0])
+            return "🚀 Apple Silicon (MLX + Metal GPU) - 高速処理"
+        except ImportError:
+            return "⚠️ Apple Silicon detected, but MLX not available"
+        except Exception:
+            return "⚠️ Apple Silicon detected, but MLX initialization failed"
+    elif system == "Darwin":
+        return "💻 Intel Mac (CPU処理)"
+    else:
+        try:
+            import torch
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                return f"🎮 NVIDIA GPU ({gpu_name}) - CUDA加速"
+            else:
+                return "💻 CPU処理 (CUDA利用不可)"
+        except ImportError:
+            return "💻 CPU処理 (PyTorch未インストール)"
+
 # Enhanced version with more detailed transcription options
 def auto_engine_detailed():
     """
