@@ -88,6 +88,10 @@ jobs:
       working-directory: frontend
       run: pnpm install --frozen-lockfile
       
+    - name: Generate Tauri icons
+      working-directory: frontend
+      run: pnpm tauri icon src-tauri/icons/icon.png
+      
     - name: Build Tauri application
       working-directory: frontend
       run: pnpm tauri build --target x86_64-pc-windows-msvc
