@@ -10,7 +10,21 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": ["msi", "nsis"],
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "wix": {
+        "language": ["en-US", "ja-JP"],
+        "template": null
+      },
+      "nsis": {
+        "displayLanguageSelector": true,
+        "languages": ["English", "Japanese"],
+        "template": null
+      }
+    }
   },
   "app": {
     "windows": [

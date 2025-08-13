@@ -1,153 +1,113 @@
-# 🎤 Web Whisper
+# Web Whisper - GitHub Repository
 
-Cross-platform speech-to-text application powered by OpenAI Whisper AI with GPU acceleration.
+🎤 Cross-platform speech-to-text application powered by OpenAI Whisper AI with GPU acceleration.
 
-[![Build Status](https://github.com/ktsutsum/web-whisper/workflows/Build%20Web%20Whisper/badge.svg)](https://github.com/ktsutsum/web-whisper/actions)
+> **Note**: This GitHub repository is dedicated to **Windows builds only**. For macOS builds and full development resources, see the main [GitLab repository](https://gitlab-cxj.cisco.com/ktsutsum/web-whisper).
+
+[![Windows Build](https://github.com/ktsutsum/web-whisper/workflows/Windows%20Build/badge.svg)](https://github.com/ktsutsum/web-whisper/actions)
 [![Release](https://img.shields.io/github/v/release/ktsutsum/web-whisper)](https://github.com/ktsutsum/web-whisper/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%20|%20macOS-blue)](https://github.com/ktsutsum/web-whisper/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%2064--bit-blue)](https://github.com/ktsutsum/web-whisper/releases)
 
-## ✨ Features
+## 🚀 Features
 
-- **🚀 GPU Acceleration**: Apple Silicon (MLX + Metal) and NVIDIA CUDA support
-- **💾 Smart File Saving**: Automatic text file export with error recovery
-- **📱 Intuitive Interface**: Simple drag-and-drop audio file processing
-- **🔧 High Accuracy**: Whisper Large-v3 model for superior transcription quality
-- **🌐 Cross-Platform**: Native Windows and macOS applications
-- **📁 Multiple Formats**: Support for MP3, WAV, M4A, FLAC, MP4, AVI, MOV, MKV
+- **Windows NVIDIA CUDA**: GPU acceleration for compatible graphics cards
+- **Smart File Saving**: Automatic text export with error recovery  
+- **Drag & Drop Interface**: Simple audio file processing
+- **High Accuracy**: Whisper Large-v3 model for superior transcription
+- **Multiple Formats**: MP3, WAV, M4A, FLAC, MP4, AVI, MOV, MKV support
+- **Offline Processing**: No internet required after initial setup
 
 ## 📦 Download
 
-**[⬇️ Latest Release](https://github.com/ktsutsum/web-whisper/releases/latest)**
+Download the latest Windows release from the [Releases](../../releases) page:
+
+- **web-whisper-windows-x64.msi** - Recommended MSI installer
+- **web-whisper-windows-x64-installer.exe** - Alternative EXE installer
 
 ### System Requirements
 
-#### macOS
-- **Minimum**: macOS 11.0 (Big Sur)
-- **Recommended**: macOS 13.0+ with Apple Silicon for GPU acceleration
-- **Storage**: 2GB free space
+**Windows:**
+- Windows 10/11 (64-bit)
+- 4GB RAM minimum, 8GB recommended
+- NVIDIA GPU with CUDA support (optional, for acceleration)
+- ~2GB free disk space for models
 
-#### Windows
-- **Minimum**: Windows 10 64-bit
-- **Recommended**: Windows 11 with NVIDIA GPU (GTX 1060+ / RTX series)
-- **Storage**: 2GB free space
-- **Optional**: CUDA 11.8+ for GPU acceleration
+## 🛠 Installation
 
-## 🚀 Quick Start
+1. Download the MSI or EXE installer from [Releases](../../releases)
+2. Run the installer and follow the prompts
+3. Launch "Web Whisper" from the Start Menu
 
-1. **Download** the installer for your platform
-2. **Install** the application
-   - **macOS**: Open DMG, drag to Applications folder
-   - **Windows**: Run the MSI installer
-3. **Launch** Web Whisper
-4. **Drag & Drop** an audio file or click to browse
-5. **Click** "転写を開始" to start transcription
-6. **Save** results using the "💾 テキスト保存" button
+## ⚡ Performance
 
-## 🏗️ Architecture
+- **GPU Acceleration**: Automatically detects and enables NVIDIA CUDA if available
+- **CPU Fallback**: Works on systems without compatible GPUs
+- **Model Caching**: Downloads models once, uses offline thereafter
+- **Memory Optimized**: Efficient processing for large audio files
 
-```
-┌─────────────┐             ┌──────────────┐
-│  Tauri GUI  │──────────▶│ Python Engine │
-│  (Rust+TS)  │             │   (Whisper)   │
-└─────────────┘             └──────┬───────┘
-                                   │
-                            ┌──────▼───────┐
-                            │ GPU Backend  │
-                            │ MLX | CUDA   │
-                            └──────────────┘
-```
-
-- **Frontend**: Tauri 2.x (Rust + TypeScript + React)
-- **Backend**: Python with Whisper Large-v3
-- **GPU Support**: MLX (Apple Silicon) / CUDA (Windows)
-
-## 🛠️ Development
+## 🔧 Building from Source
 
 ### Prerequisites
 
-- **Node.js** 18+ and pnpm
-- **Rust** 1.70+ with cross-compilation targets
-- **Python** 3.11+ with virtual environment
-- **System Dependencies**: 
-  - macOS: Xcode Command Line Tools
-  - Windows: Visual Studio Build Tools
+```powershell
+# Install dependencies
+choco install nodejs python rust
+npm install -g pnpm@8
+```
 
-### Setup
+### Build Steps
 
 ```bash
 # Clone repository
-git clone https://github.com/ktsutsum/web-whisper.git
+git clone https://github.com/your-username/web-whisper.git
 cd web-whisper
 
-# Install frontend dependencies
+# Setup Python environment
+cd backend
+python -m pip install -r requirements.txt
+cd ..
+
+# Build frontend
 cd frontend
 pnpm install
-
-# Setup Python backend
-cd ../backend
-python -m venv web-whisper
-source web-whisper/bin/activate  # or web-whisper\Scripts\activate.bat on Windows
-pip install -r requirements.txt
+pnpm tauri build --target x86_64-pc-windows-msvc
 ```
 
-### Development Commands
+## 🏗 CI/CD
 
-```bash
-# Run in development mode
-cd frontend
-pnpm tauri dev
+This repository uses GitHub Actions for automated Windows builds:
 
-# Build for production
-pnpm tauri build --target universal-apple-darwin  # macOS
-pnpm tauri build --target x86_64-pc-windows-msvc  # Windows
+- **Continuous Integration**: Builds on every push to main/develop
+- **Release Automation**: Creates releases on version tags
+- **Artifact Storage**: Windows installers and executables
+
+## 📁 Repository Structure
+
 ```
-
-### Docker Development
-
-```bash
-# Run backend in Docker
-cd backend
-docker-compose up
-
-# Access at http://localhost:7860
+web-whisper/
+├── .github/workflows/     # GitHub Actions CI/CD
+├── backend/              # Python backend (whisper-gui)
+├── frontend/             # Tauri + React frontend
+└── releases/             # Build artifacts
 ```
-
-## 🔄 CI/CD
-
-Automated builds are configured for:
-- **GitHub Actions**: Windows and macOS builds on tag push
-- **GitLab CI/CD**: Alternative pipeline for Cisco environments
-
-To create a release:
-```bash
-git tag v1.2.3
-git push origin v1.2.3
-```
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create a feature branch
+3. Make your changes
+4. Test on Windows
+5. Submit a pull request
 
-## 📞 Support
+## 📄 License
 
-- **Issues**: [GitHub Issues](https://github.com/ktsutsum/web-whisper/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/ktsutsum/web-whisper/discussions)
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## 🔗 Related Repositories
 
-- [OpenAI Whisper](https://github.com/openai/whisper) - Speech recognition model
-- [MLX](https://github.com/ml-explore/mlx) - Apple Silicon acceleration
-- [Tauri](https://tauri.app/) - Cross-platform application framework
-- [faster-whisper](https://github.com/guillaumekln/faster-whisper) - Efficient Whisper implementation
+- **Main Development**: [GitLab Repository](https://gitlab-cxj.cisco.com/ktsutsum/web-whisper) (macOS builds, full documentation)
+- **Windows Builds**: This GitHub repository
 
 ---
 
-**Made with ❤️ for seamless speech-to-text transcription**
+Built with ❤️ using [Tauri](https://tauri.app/), [Rust](https://rust-lang.org/), [TypeScript](https://www.typescriptlang.org/), and [Python](https://python.org/).

@@ -1,0 +1,195 @@
+name: Release
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  PYTHON_VERSION: "3.11"
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install pnpm
+      uses: pnpm/action-setup@v2
+      with:
+        version: 8
+        
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-pc-windows-msvc
+        
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          frontend/src-tauri/target
+          ~/.pnpm-store
+          ~\AppData\Local\pip\Cache
+        key: windows-release-${{ hashFiles('frontend/src-tauri/Cargo.lock', 'frontend/pnpm-lock.yaml', 'backend/requirements.txt') }}
+        restore-keys: |
+          windows-release-
+          
+    - name: Install Python dependencies
+      working-directory: backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+        
+    - name: Build backend executable
+      working-directory: backend
+      run: |
+        pyinstaller main.py --onefile --name whisper-gui-core.exe `
+          --collect-all faster_whisper `
+          --collect-all ctranslate2 `
+          --collect-all gradio `
+          --collect-all gradio_client `
+          --add-data "configs;configs" `
+          --add-data "scripts;scripts" `
+          --hidden-import=mlx_whisper `
+          --hidden-import=faster_whisper `
+          --hidden-import=ctranslate2 `
+          --hidden-import=gradio `
+          --console
+          
+    - name: Install frontend dependencies
+      working-directory: frontend
+      run: pnpm install --frozen-lockfile
+      
+    - name: Build Tauri application
+      working-directory: frontend
+      run: pnpm tauri build --target x86_64-pc-windows-msvc
+      
+    - name: Create Windows release artifacts
+      run: |
+        mkdir releases
+        
+        # Copy MSI installer
+        if (Test-Path "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi") {
+          Copy-Item "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi" "releases\"
+          Get-ChildItem "releases\*.msi" | Rename-Item -NewName { "web-whisper-windows-x64.msi" }
+        }
+        
+        # Copy NSIS installer
+        if (Test-Path "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\*.exe") {
+          Copy-Item "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\*.exe" "releases\"
+          Get-ChildItem "releases\*.exe" | Where-Object { $_.Name -ne "whisper-gui-core.exe" } | Rename-Item -NewName { "web-whisper-windows-x64-installer.exe" }
+        }
+        
+        # Copy backend executable
+        Copy-Item "backend\dist\whisper-gui-core.exe" "releases\"
+        
+        Write-Host "Created Windows release artifacts:"
+        Get-ChildItem releases\
+        
+    - name: Upload Windows artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-release
+        path: releases/
+        retention-days: 7
+
+  create-release:
+    needs: [build-windows]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download Windows artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: windows-release
+        path: releases/
+        
+    - name: List all artifacts
+      run: |
+        echo "Available release artifacts:"
+        ls -la releases/
+        file releases/* || true
+        
+    - name: Get version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        name: Web Whisper ${{ steps.version.outputs.version }}
+        files: releases/*
+        generate_release_notes: true
+        body: |
+          ## Web Whisper ${{ steps.version.outputs.version }}
+          
+          🎤 Cross-platform speech-to-text application powered by OpenAI Whisper AI with GPU acceleration.
+          
+          ### 🚀 Features
+          - **Windows NVIDIA CUDA**: GPU acceleration for compatible graphics cards  
+          - **Smart File Saving**: Automatic text export with error recovery
+          - **Drag & Drop Interface**: Simple audio file processing
+          - **High Accuracy**: Whisper Large-v3 model for superior transcription
+          - **Multiple Formats**: MP3, WAV, M4A, FLAC, MP4, AVI, MOV, MKV support
+          
+          ### 📦 Downloads
+          
+          **Windows (64-bit):**
+          - `web-whisper-windows-x64.msi` - Recommended MSI installer
+          - `web-whisper-windows-x64-installer.exe` - Alternative EXE installer
+          - `whisper-gui-core.exe` - Standalone backend executable
+          
+          ### 🛠 Installation
+          
+          **Windows:**
+          1. Download either the MSI or EXE installer
+          2. Run the installer and follow the prompts
+          3. Launch "Web Whisper" from the Start Menu
+          
+          ### ⚡ Performance
+          - GPU acceleration automatically detected and enabled
+          - Offline processing - no internet required after setup
+          - Optimized for Windows x64 architecture with CUDA support
+          
+          ### 📋 System Requirements
+          
+          **Windows:**
+          - Windows 10/11 (64-bit)
+          - 4GB RAM minimum, 8GB recommended
+          - NVIDIA GPU with CUDA support (optional, for acceleration)
+          - ~2GB free disk space for models
+          
+          Built with ❤️ using Tauri, Rust, TypeScript, and Python.
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
