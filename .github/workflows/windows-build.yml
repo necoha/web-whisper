@@ -3,7 +3,6 @@ name: Windows Build
 on:
   push:
     branches: [ main, develop ]
-    tags: [ 'v*.*.*' ]
   pull_request:
     branches: [ main ]
 
@@ -190,37 +189,3 @@ jobs:
         name: web-whisper-windows-${{ github.sha }}
         path: releases/
         retention-days: 30
-        
-    - name: Create Release (on tag)
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
-      with:
-        files: releases/*
-        generate_release_notes: true
-        body: |
-          ## Web Whisper ${{ github.ref_name }}
-          
-          🎤 Cross-platform speech-to-text application powered by OpenAI Whisper AI with GPU acceleration.
-          
-          ### 🚀 Features
-          - **Windows NVIDIA CUDA**: GPU acceleration for compatible graphics cards  
-          - **Smart File Saving**: Automatic text export with error recovery
-          - **Drag & Drop Interface**: Simple audio file processing
-          - **High Accuracy**: Whisper Large-v3 model for superior transcription
-          - **Multiple Formats**: MP3, WAV, M4A, FLAC, MP4, AVI, MOV, MKV support
-          
-          ### 📦 Downloads
-          - **Windows 64-bit MSI**: Recommended installer for Windows 10/11
-          - **Windows 64-bit EXE**: Alternative installer format
-          
-          ### 🛠 Installation
-          Download MSI or EXE file, run installer, and follow prompts.
-          
-          ### ⚡ Performance
-          - GPU acceleration automatically detected and enabled
-          - Offline processing - no internet required after setup
-          - Optimized for Windows x64 architecture
-          
-          Built with ❤️ using Tauri, Rust, TypeScript, and Python.
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
