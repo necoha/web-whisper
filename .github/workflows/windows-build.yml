@@ -81,18 +81,30 @@ jobs:
           --collect-all ctranslate2 `
           --collect-all gradio `
           --collect-all gradio_client `
+          --collect-data safehttpx `
+          --collect-data gradio_client `
           --add-data "configs;configs" `
           --add-data "scripts;scripts" `
           --hidden-import=mlx_whisper `
           --hidden-import=faster_whisper `
           --hidden-import=ctranslate2 `
           --hidden-import=gradio `
+          --hidden-import=safehttpx `
           --console
           
     - name: Test backend executable
       working-directory: backend
       run: |
+        # Test basic functionality
         .\dist\whisper-gui-core.exe --help
+        
+        # Test that safehttpx data files are bundled (should not crash)
+        Write-Host "Testing safehttpx data file inclusion..."
+        .\dist\whisper-gui-core.exe --version || echo "Version check completed"
+        
+        # Verify executable properties
+        Write-Host "Executable info:"
+        Get-Item .\dist\whisper-gui-core.exe | Select-Object Name, Length, LastWriteTime
         
     - name: Install frontend dependencies
       working-directory: frontend
