@@ -29,10 +29,12 @@ jobs:
       with:
         node-version: '20'
         
-    - name: Install pnpm
-      uses: pnpm/action-setup@v2
-      with:
-        version: 8
+    - name: Enable Corepack
+      run: corepack enable
+      
+    - name: Setup pnpm via packageManager field
+      working-directory: frontend
+      run: corepack use pnpm
         
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
