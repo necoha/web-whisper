@@ -40,7 +40,7 @@ jobs:
         targets: x86_64-pc-windows-msvc
         
     - name: Cache Rust dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -51,7 +51,7 @@ jobs:
           windows-rust-
           
     - name: Cache Python dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~\AppData\Local\pip\Cache
         key: windows-pip-${{ hashFiles('backend/requirements.txt') }}
@@ -59,7 +59,7 @@ jobs:
           windows-pip-
           
     - name: Cache pnpm dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/.pnpm-store
         key: windows-pnpm-${{ hashFiles('frontend/pnpm-lock.yaml') }}
@@ -125,7 +125,7 @@ jobs:
         Get-ChildItem releases\
         
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: web-whisper-windows-${{ github.sha }}
         path: releases/
