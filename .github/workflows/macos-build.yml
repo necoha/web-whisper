@@ -1,10 +1,9 @@
 name: macos-app
 
 on:
+  # Disabled for Windows-only GitHub repository
+  # Use GitLab CI/CD for macOS builds
   workflow_dispatch:
-  push:
-    branches: [ main, master ]
-  pull_request:
 
 jobs:
   build-macos:

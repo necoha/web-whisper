@@ -1,8 +1,8 @@
 name: Build Web Whisper
 
 on:
-  push:
-    tags: ['v*']
+  # Disabled for Windows-only GitHub repository  
+  # Use GitLab CI/CD for macOS builds and release.yml for Windows
   workflow_dispatch:
 
 env:
