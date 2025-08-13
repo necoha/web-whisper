@@ -83,6 +83,7 @@ jobs:
           --collect-all gradio_client `
           --collect-data safehttpx `
           --collect-data gradio_client `
+          --collect-data groovy `
           --add-data "configs;configs" `
           --add-data "scripts;scripts" `
           --hidden-import=mlx_whisper `
@@ -92,14 +93,25 @@ jobs:
           --hidden-import=safehttpx `
           --console
           
+    - name: Check PyInstaller warnings
+      working-directory: backend
+      run: |
+        # Check PyInstaller warnings for missing dependencies
+        Write-Host "=== PyInstaller Warnings ==="
+        if (Test-Path ".\build\whisper-gui-core\warn-whisper-gui-core.txt") {
+          Get-Content ".\build\whisper-gui-core\warn-whisper-gui-core.txt"
+        } else {
+          Write-Host "No warnings file found"
+        }
+        
     - name: Test backend executable
       working-directory: backend
       run: |
         # Test basic functionality
         .\dist\whisper-gui-core.exe --help
         
-        # Test that safehttpx data files are bundled (should not crash)
-        Write-Host "Testing safehttpx data file inclusion..."
+        # Test that data files are bundled (should not crash)
+        Write-Host "Testing package data file inclusion..."
         .\dist\whisper-gui-core.exe --version || echo "Version check completed"
         
         # Verify executable properties

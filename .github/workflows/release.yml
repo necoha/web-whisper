@@ -72,6 +72,7 @@ jobs:
           --collect-all gradio_client `
           --collect-data safehttpx `
           --collect-data gradio_client `
+          --collect-data groovy `
           --add-data "configs;configs" `
           --add-data "scripts;scripts" `
           --hidden-import=mlx_whisper `
