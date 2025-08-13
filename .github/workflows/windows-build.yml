@@ -3,9 +3,12 @@ name: Windows Build
 on:
   push:
     branches: [ main, develop ]
-    tags: [ 'v*' ]
+    tags: [ 'v*.*.*' ]
   pull_request:
     branches: [ main ]
+
+permissions:
+  contents: write
 
 env:
   PYTHON_VERSION: "3.11"
@@ -141,23 +144,41 @@ jobs:
       working-directory: frontend
       run: pnpm tauri build --target x86_64-pc-windows-msvc
       
-    - name: Create release directory
-      run: mkdir releases
-      
     - name: Package Windows build
       run: |
-        # Copy MSI installer
-        if (Test-Path "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi") {
-          Copy-Item "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi\*.msi" "releases\"
+        $ErrorActionPreference = "Stop"
+        
+        # Create output directory (force recreate for idempotency)
+        New-Item -ItemType Directory -Path releases -Force | Out-Null
+        
+        # --- MSI installer ---
+        $msiDir = "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi"
+        $msi = Get-ChildItem $msiDir -Filter *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($msi) {
+          Copy-Item $msi.FullName "releases\web-whisper-windows-x64.msi" -Force
+          Write-Host "Packaged MSI: $($msi.Name)"
+        } else {
+          Write-Host "No MSI found in $msiDir"
         }
         
-        # Copy NSIS installer
-        if (Test-Path "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\*.exe") {
-          Copy-Item "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\*.exe" "releases\"
+        # --- NSIS installer (EXE) ---
+        $nsisDir = "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis"
+        $nsis = Get-ChildItem $nsisDir -Filter *.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($nsis) {
+          Copy-Item $nsis.FullName "releases\web-whisper-windows-x64-installer.exe" -Force
+          Write-Host "Packaged NSIS: $($nsis.Name)"
+        } else {
+          Write-Host "No NSIS EXE found in $nsisDir"
         }
         
-        # Copy backend executable
-        Copy-Item "backend\dist\whisper-gui-core.exe" "releases\"
+        # --- Backend executable ---
+        $backendExe = "backend\dist\whisper-gui-core.exe"
+        if (Test-Path $backendExe) {
+          Copy-Item $backendExe "releases\whisper-gui-core.exe" -Force
+          Write-Host "Packaged backend: whisper-gui-core.exe"
+        } else {
+          Write-Host "Backend EXE not found at $backendExe"
+        }
         
         # List created files
         Write-Host "Created packages:"
