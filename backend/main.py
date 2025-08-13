@@ -14,22 +14,79 @@ import tempfile
 import shutil
 from pathlib import Path
 
+# Ensure FFmpeg is in PATH
+def setup_ffmpeg_path():
+    """Add common FFmpeg installation paths to PATH."""
+    current_path = os.environ.get('PATH', '')
+    
+    if platform.system() == "Darwin":  # macOS
+        ffmpeg_paths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin"
+        ]
+    elif platform.system() == "Windows":
+        ffmpeg_paths = [
+            "C:\\ffmpeg\\bin",
+            "C:\\Program Files\\FFmpeg\\bin",
+            "C:\\Program Files (x86)\\FFmpeg\\bin"
+        ]
+    else:  # Linux
+        ffmpeg_paths = [
+            "/usr/local/bin",
+            "/usr/bin"
+        ]
+    
+    separator = ";" if platform.system() == "Windows" else ":"
+    new_paths = []
+    
+    for path in ffmpeg_paths:
+        if os.path.exists(path) and path not in current_path:
+            new_paths.append(path)
+    
+    if new_paths:
+        os.environ['PATH'] = separator.join(new_paths) + separator + current_path
+        print(f"Added FFmpeg paths to PATH: {', '.join(new_paths)}")
+
+# Setup FFmpeg path early
+setup_ffmpeg_path()
+
+# Test FFmpeg availability
+def test_ffmpeg():
+    """Test if FFmpeg is available."""
+    try:
+        import subprocess
+        result = subprocess.run(['ffmpeg', '-version'], 
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            print("✅ FFmpeg is available")
+            return True
+        else:
+            print("❌ FFmpeg test failed")
+            return False
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print(f"❌ FFmpeg not found: {e}")
+        return False
+
+# Test FFmpeg on startup
+test_ffmpeg()
+
 import gradio as gr
 import numpy as np
 from typing import Optional, Tuple
 
 # Import platform-specific GPU detection
-from patch_gpu import auto_engine_detailed
+from patch_gpu import auto_engine_detailed, auto_engine, get_available_models
 
-def get_transcription_engine():
-    """Initialize the appropriate transcription engine based on platform."""
+def get_transcription_engine(model_choice="🎯 High Accuracy"):
+    """Initialize the appropriate transcription engine based on platform and model."""
     try:
-        return auto_engine_detailed()
+        return auto_engine_detailed(model_choice)
     except Exception as e:
         print(f"Error initializing transcription engine: {e}")
         sys.exit(1)
 
-# Global transcription engine
+# Default transcription engine - will be updated when model is selected
 transcription_engine = get_transcription_engine()
 
 def transcribe_audio(
@@ -38,7 +95,8 @@ def transcribe_audio(
     language: str = "auto",
     word_timestamps: bool = True,
     save_output: bool = True,
-    output_format: str = "json"
+    output_format: str = "json",
+    model_choice: str = "🎯 High Accuracy"
 ) -> Tuple[str, str, str]:
     """
     Transcribe audio using the platform-optimized engine.
@@ -65,9 +123,12 @@ def transcribe_audio(
         return "No audio input provided", "", ""
     
     try:
-        # Transcribe using the platform-optimized engine
+        # Get the appropriate engine for the selected model
+        current_engine = get_transcription_engine(model_choice)
+        
+        # Transcribe using the selected model engine
         language_param = None if language == "auto" else language
-        result = transcription_engine(
+        result = current_engine(
             audio_path,
             language=language_param,
             word_timestamps=word_timestamps
@@ -104,27 +165,51 @@ def transcribe_audio(
         # Processing info
         detected_lang = result.get("language", "unknown")
         lang_prob = result.get("language_probability", 0.0)
-        info_text = f"Detected language: {detected_lang} (confidence: {lang_prob:.2f})"
+        
+        # Get base filename for info display
+        if audio_file is not None:
+            base_filename = Path(audio_file).stem
+            input_info = f"Input: {Path(audio_file).name}"
+        elif 'temp_file' in locals() and temp_file:
+            base_filename = Path(temp_file.name).stem
+            input_info = "Input: Microphone recording"
+        else:
+            base_filename = "transcription"
+            input_info = "Input: Unknown source"
+        
+        info_text = f"{input_info}\nDetected language: {detected_lang} (confidence: {lang_prob:.2f})\nOutput file: {base_filename}.txt"
         
         # Save output if requested
         if save_output:
             output_dir = Path("outputs")
             output_dir.mkdir(exist_ok=True)
             
-            # Save transcription
-            with open(output_dir / "transcription.txt", "w", encoding="utf-8") as f:
+            # Get base filename from input file
+            if audio_file is not None:
+                base_filename = Path(audio_file).stem
+            elif 'temp_file' in locals() and temp_file:
+                # Extract original name from temp file
+                base_filename = Path(temp_file.name).stem
+            else:
+                base_filename = "transcription"
+            
+            # Save transcription with original filename
+            transcription_file = f"{base_filename}.txt"
+            with open(output_dir / transcription_file, "w", encoding="utf-8") as f:
                 f.write(transcription_text)
             
-            # Save timestamps
+            # Save timestamps with original filename
             if output_format.lower() == "json":
-                with open(output_dir / "timestamps.json", "w", encoding="utf-8") as f:
+                timestamps_file = f"{base_filename}_timestamps.json"
+                with open(output_dir / timestamps_file, "w", encoding="utf-8") as f:
                     f.write(timestamps_json)
             elif output_format.lower() == "srt":
+                timestamps_file = f"{base_filename}.srt"
                 srt_content = convert_to_srt(timestamps_data if 'timestamps_data' in locals() else [])
-                with open(output_dir / "timestamps.srt", "w", encoding="utf-8") as f:
+                with open(output_dir / timestamps_file, "w", encoding="utf-8") as f:
                     f.write(srt_content)
             
-            print(f"Output saved to {output_dir}")
+            print(f"Output saved to {output_dir}/{transcription_file}")
         
         return transcription_text, timestamps_json, info_text
         
@@ -218,6 +303,13 @@ def create_interface():
                 # Transcription options
                 with gr.Group():
                     gr.Markdown("### ⚙️ Options")
+                    model_choice = gr.Dropdown(
+                        choices=list(get_available_models().keys()),
+                        value="🎯 High Accuracy",
+                        label="Model Selection",
+                        info="Choose model based on accuracy vs speed preference"
+                    )
+                    
                     language = gr.Dropdown(
                         choices=["auto", "en", "es", "fr", "de", "it", "ja", "zh", "pt", "ru", "ko"],
                         value="auto",
@@ -285,7 +377,8 @@ def create_interface():
                 language,
                 word_timestamps,
                 save_output,
-                output_format
+                output_format,
+                model_choice
             ],
             outputs=[
                 transcription_output,
@@ -297,9 +390,9 @@ def create_interface():
         # Add examples
         gr.Examples(
             examples=[
-                ["examples/coffe_break_example.mp3", "auto", True, True, "json"]
+                ["examples/coffe_break_example.mp3", "auto", True, True, "json", "🎯 High Accuracy"]
             ] if Path("examples/coffe_break_example.mp3").exists() else [],
-            inputs=[audio_file, language, word_timestamps, save_output, output_format],
+            inputs=[audio_file, language, word_timestamps, save_output, output_format, model_choice],
             outputs=[transcription_output, timestamps_output, info_output],
             fn=transcribe_audio,
             cache_examples=False

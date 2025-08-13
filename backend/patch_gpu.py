@@ -2,26 +2,49 @@
 import platform
 import importlib
 
-def auto_engine():
+def get_available_models():
+    """Get available Whisper models for the current platform."""
+    system = platform.system()
+    machine = platform.machine()
+    
+    if system == "Darwin" and machine.startswith("arm"):
+        # Apple Silicon models
+        return {
+            "🎯 High Accuracy": "mlx-community/whisper-large-v3-mlx",
+            "🚀 Fast": "mlx-community/whisper-large-v3-turbo",
+            "⚖️ Balanced": "mlx-community/whisper-medium-mlx",
+            "⚡ Fastest": "mlx-community/whisper-base-mlx"
+        }
+    else:
+        # faster-whisper models for other platforms
+        return {
+            "🎯 High Accuracy": "large-v3",
+            "🚀 Fast": "large-v2", 
+            "⚖️ Balanced": "medium",
+            "⚡ Fastest": "base"
+        }
+
+def auto_engine(model_choice="🎯 High Accuracy"):
     """
-    GPU auto-detection for cross-platform Whisper inference.
+    GPU auto-detection for cross-platform Whisper inference with model selection.
     - macOS/Apple Silicon: MLX backend with Metal GPU acceleration
     - Windows/NVIDIA: faster-whisper with CUDA acceleration
     """
     system = platform.system()
     machine = platform.machine()
+    available_models = get_available_models()
+    model_name = available_models.get(model_choice, list(available_models.values())[0])
     
     if system == "Darwin" and machine.startswith("arm"):
         # Apple Silicon macOS - Use MLX backend
         try:
             mlx = importlib.import_module("mlx_whisper")
-            model_name = "mlx-community/whisper-large-v3-mlx"
             
             def transcribe_mlx(audio_file):
                 result = mlx.transcribe(audio_file, path_or_hf_repo=model_name)
                 return result["text"]
             
-            print("Using MLX backend for Apple Silicon")
+            print(f"Using MLX backend with model: {model_name}")
             return transcribe_mlx
             
         except ImportError:
@@ -32,40 +55,40 @@ def auto_engine():
         try:
             from faster_whisper import WhisperModel
             
-            # Initialize model with CUDA acceleration
-            model = WhisperModel("large-v3", device="cuda", compute_type="float16")
+            # Initialize model with CUDA acceleration using selected model
+            model = WhisperModel(model_name, device="cuda", compute_type="float16")
             
             def transcribe_faster_whisper(audio_file):
                 segments, info = model.transcribe(audio_file)
                 return " ".join(segment.text for segment in segments)
             
-            print("Using faster-whisper backend with CUDA")
+            print(f"Using faster-whisper backend with CUDA and model: {model_name}")
             return transcribe_faster_whisper
             
         except ImportError:
             raise RuntimeError("faster-whisper not available. Install with: pip install faster-whisper")
         except Exception as e:
             # Fallback to CPU if CUDA not available
-            model = WhisperModel("large-v3", device="cpu", compute_type="int8")
+            model = WhisperModel(model_name, device="cpu", compute_type="int8")
             
             def transcribe_cpu_fallback(audio_file):
                 segments, info = model.transcribe(audio_file)
                 return " ".join(segment.text for segment in segments)
             
-            print(f"CUDA not available ({e}), falling back to CPU")
+            print(f"CUDA not available ({e}), falling back to CPU with model: {model_name}")
             return transcribe_cpu_fallback
     
     elif system == "Darwin" and not machine.startswith("arm"):
         # Intel macOS - Use faster-whisper as fallback
         try:
             from faster_whisper import WhisperModel
-            model = WhisperModel("large-v3", device="cpu", compute_type="int8")
+            model = WhisperModel(model_name, device="cpu", compute_type="int8")
             
             def transcribe_intel_mac(audio_file):
                 segments, info = model.transcribe(audio_file)
                 return " ".join(segment.text for segment in segments)
             
-            print("Using faster-whisper backend for Intel macOS")
+            print(f"Using faster-whisper backend for Intel macOS with model: {model_name}")
             return transcribe_intel_mac
             
         except ImportError:
@@ -77,17 +100,17 @@ def auto_engine():
             from faster_whisper import WhisperModel
             # Try CUDA first, fallback to CPU
             try:
-                model = WhisperModel("large-v3", device="cuda", compute_type="float16")
+                model = WhisperModel(model_name, device="cuda", compute_type="float16")
                 device_info = "CUDA"
             except:
-                model = WhisperModel("large-v3", device="cpu", compute_type="int8")
+                model = WhisperModel(model_name, device="cpu", compute_type="int8")
                 device_info = "CPU"
             
             def transcribe_linux(audio_file):
                 segments, info = model.transcribe(audio_file)
                 return " ".join(segment.text for segment in segments)
             
-            print(f"Using faster-whisper backend on {system} with {device_info}")
+            print(f"Using faster-whisper backend on {system} with {device_info} and model: {model_name}")
             return transcribe_linux
             
         except ImportError:
@@ -122,18 +145,19 @@ def get_gpu_info():
             return "💻 CPU処理 (PyTorch未インストール)"
 
 # Enhanced version with more detailed transcription options
-def auto_engine_detailed():
+def auto_engine_detailed(model_choice="🎯 High Accuracy"):
     """
     Enhanced GPU auto-detection with detailed transcription options including timestamps.
     """
     system = platform.system()
     machine = platform.machine()
+    available_models = get_available_models()
+    model_name = available_models.get(model_choice, list(available_models.values())[0])
     
     if system == "Darwin" and machine.startswith("arm"):
         # Apple Silicon macOS - Use MLX backend
         try:
             mlx = importlib.import_module("mlx_whisper")
-            model_name = "mlx-community/whisper-large-v3-mlx"
             
             def transcribe_mlx_detailed(audio_file, **kwargs):
                 result = mlx.transcribe(
@@ -144,7 +168,7 @@ def auto_engine_detailed():
                 )
                 return result
             
-            print("Using MLX backend for Apple Silicon with detailed output")
+            print(f"Using MLX backend for Apple Silicon with model: {model_name}")
             return transcribe_mlx_detailed
             
         except ImportError:
@@ -160,10 +184,10 @@ def auto_engine_detailed():
             compute_type = "float16" if device == "cuda" else "int8"
             
             try:
-                model = WhisperModel("large-v3", device=device, compute_type=compute_type)
+                model = WhisperModel(model_name, device=device, compute_type=compute_type)
             except:
                 # Fallback to CPU
-                model = WhisperModel("large-v3", device="cpu", compute_type="int8")
+                model = WhisperModel(model_name, device="cpu", compute_type="int8")
                 device = "cpu"
             
             def transcribe_faster_whisper_detailed(audio_file, **kwargs):
@@ -189,7 +213,7 @@ def auto_engine_detailed():
                 }
                 return result
             
-            print(f"Using faster-whisper backend on {system} with {device.upper()}")
+            print(f"Using faster-whisper backend on {system} with {device.upper()} and model: {model_name}")
             return transcribe_faster_whisper_detailed
             
         except ImportError:

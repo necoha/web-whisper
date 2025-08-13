@@ -22,7 +22,7 @@ type ServerState = Arc<Mutex<Option<ServerInfo>>>;
 type ProcessState = Arc<Mutex<Option<u32>>>; // Store process ID
 
 #[tauri::command]
-async fn start_whisper_server(
+async fn start_gradio_server(
     app: tauri::AppHandle,
     state: State<'_, ServerState>,
     process_state: State<'_, ProcessState>,
@@ -200,6 +200,23 @@ async fn start_whisper_server(
             .current_dir(&backend_dir)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
+        
+        // Add ffmpeg paths to environment
+        let current_path = env::var("PATH").unwrap_or_default();
+        let ffmpeg_paths = vec![
+            "/opt/homebrew/bin",
+            "/usr/local/bin", 
+            "/usr/bin"
+        ];
+        
+        let mut new_path = current_path.clone();
+        for ffmpeg_path in ffmpeg_paths {
+            if !new_path.contains(ffmpeg_path) {
+                new_path = format!("{}:{}", ffmpeg_path, new_path);
+            }
+        }
+        cmd.env("PATH", new_path);
+        
         child = cmd.spawn()
             .map_err(|e| format!("Failed to spawn Python process: {}", e))?;
     }
@@ -282,9 +299,16 @@ async fn start_whisper_server(
 }
 
 #[tauri::command]
-async fn get_server_info(state: State<'_, ServerState>) -> Result<Option<ServerInfo>, String> {
-    let state_guard = state.lock().unwrap();
-    Ok(state_guard.clone())
+async fn get_server_info(state: State<'_, ServerState>) -> Result<ServerInfo, String> {
+    let server_info = {
+        let state_guard = state.lock().unwrap();
+        state_guard.clone()
+    };
+
+    match server_info {
+        Some(info) => Ok(info),
+        None => Err("Server not started".to_string())
+    }
 }
 
 #[tauri::command]
@@ -664,7 +688,7 @@ fn main() {
         .manage(server_state)
         .manage(process_state.clone())
         .invoke_handler(tauri::generate_handler![
-            start_whisper_server,
+            start_gradio_server,
             get_server_info,
             open_whisper_gui,
             save_temp_file,
