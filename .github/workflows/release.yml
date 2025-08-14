@@ -106,6 +106,16 @@ jobs:
         # Create output directory (force recreate for idempotency)
         New-Item -ItemType Directory -Path releases -Force | Out-Null
         
+        # --- Portable standalone EXE ---
+        $appDir = "frontend\src-tauri\target\x86_64-pc-windows-msvc\release"
+        $appExe = Get-ChildItem $appDir -Filter "Web Whisper.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($appExe) {
+          Copy-Item $appExe.FullName "releases\web-whisper-portable.exe" -Force
+          Write-Host "Packaged portable EXE: $($appExe.Name)"
+        } else {
+          Write-Host "No portable EXE found in $appDir"
+        }
+        
         # --- MSI installer ---
         $msiDir = "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi"
         $msi = Get-ChildItem $msiDir -Filter *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -196,14 +206,22 @@ jobs:
           ### 📦 Downloads
           
           **Windows (64-bit):**
-          - `web-whisper-windows-x64.msi` - Recommended MSI installer
-          - `web-whisper-windows-x64-installer.exe` - Alternative EXE installer
-          - `whisper-gui-core.exe` - Standalone backend executable
+          - `web-whisper-portable.exe` - 🚀 **Portable standalone EXE** (No installation required)
+          - `web-whisper-windows-x64.msi` - MSI installer
+          - `web-whisper-windows-x64-installer.exe` - Alternative EXE installer  
+          - `whisper-gui-core.exe` - Backend executable only
           
           ### 🛠 Installation
           
           **Windows:**
-          1. Download either the MSI or EXE installer
+          
+          **Option 1: Portable (Recommended for first-time users)**
+          1. Download `web-whisper-portable.exe`
+          2. Save to any folder (Desktop, Downloads, etc.)
+          3. Double-click to run - no installation required!
+          
+          **Option 2: Traditional Installation**
+          1. Download either the MSI or EXE installer  
           2. Run the installer and follow the prompts
           3. Launch "Web Whisper" from the Start Menu
           

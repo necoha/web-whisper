@@ -150,6 +150,16 @@ jobs:
         # Create output directory (force recreate for idempotency)
         New-Item -ItemType Directory -Path releases -Force | Out-Null
         
+        # --- Portable standalone EXE ---
+        $appDir = "frontend\src-tauri\target\x86_64-pc-windows-msvc\release"
+        $appExe = Get-ChildItem $appDir -Filter "Web Whisper.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($appExe) {
+          Copy-Item $appExe.FullName "releases\web-whisper-portable.exe" -Force
+          Write-Host "Packaged portable EXE: $($appExe.Name)"
+        } else {
+          Write-Host "No portable EXE found in $appDir"
+        }
+        
         # --- MSI installer ---
         $msiDir = "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi"
         $msi = Get-ChildItem $msiDir -Filter *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
