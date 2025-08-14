@@ -76,8 +76,12 @@ async fn start_gradio_server(
                 candidates.into_iter().find(|p| p.join("main.py").exists())
                     .unwrap_or_else(|| PathBuf::from("backend"))
             } else {
-                // macOS/Linux
-                PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+                // macOS/Linux fallback
+                if cfg!(target_os = "windows") {
+                    PathBuf::from("backend")
+                } else {
+                    PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+                }
             };
             
             if candidate1.join("main.py").exists() {
@@ -175,28 +179,33 @@ async fn start_gradio_server(
         found_python
     } else {
         // macOS/Linux: Try to detect pyenv Python path
-        let home_dir = env::var("HOME").unwrap_or_else(|_| "/Users/ktsutsum".to_string());
-        let pyenv_python_web = format!("{}/.pyenv/versions/web-whisper/bin/python", home_dir);
-        let pyenv_python_gui = format!("{}/.pyenv/versions/whisper-gui/bin/python", home_dir);
-        let pyenv_python_web3 = format!("{}/.pyenv/versions/web-whisper/bin/python3", home_dir);
-        let pyenv_python_gui3 = format!("{}/.pyenv/versions/whisper-gui/bin/python3", home_dir);
-        
-        // Check if pyenv Python exists, prioritize web-whisper environment
-        if std::path::Path::new(&pyenv_python_web).exists() {
-            println!("Using pyenv Python (web-whisper): {}", pyenv_python_web);
-            pyenv_python_web
-        } else if std::path::Path::new(&pyenv_python_web3).exists() {
-            println!("Using pyenv Python (web-whisper python3): {}", pyenv_python_web3);
-            pyenv_python_web3
-        } else if std::path::Path::new(&pyenv_python_gui).exists() {
-            println!("Using pyenv Python (whisper-gui): {}", pyenv_python_gui);
-            pyenv_python_gui
-        } else if std::path::Path::new(&pyenv_python_gui3).exists() {
-            println!("Using pyenv Python (whisper-gui python3): {}", pyenv_python_gui3);
-            pyenv_python_gui3
+        if cfg!(target_os = "windows") {
+            // Windows fallback - should not reach here due to earlier Windows detection
+            "python".to_string()
         } else {
-            println!("Pyenv Python not found, using system python3");
-            "python3".to_string()
+            let home_dir = env::var("HOME").unwrap_or_else(|_| "/Users/ktsutsum".to_string());
+            let pyenv_python_web = format!("{}/.pyenv/versions/web-whisper/bin/python", home_dir);
+            let pyenv_python_gui = format!("{}/.pyenv/versions/whisper-gui/bin/python", home_dir);
+            let pyenv_python_web3 = format!("{}/.pyenv/versions/web-whisper/bin/python3", home_dir);
+            let pyenv_python_gui3 = format!("{}/.pyenv/versions/whisper-gui/bin/python3", home_dir);
+            
+            // Check if pyenv Python exists, prioritize web-whisper environment
+            if std::path::Path::new(&pyenv_python_web).exists() {
+                println!("Using pyenv Python (web-whisper): {}", pyenv_python_web);
+                pyenv_python_web
+            } else if std::path::Path::new(&pyenv_python_web3).exists() {
+                println!("Using pyenv Python (web-whisper python3): {}", pyenv_python_web3);
+                pyenv_python_web3
+            } else if std::path::Path::new(&pyenv_python_gui).exists() {
+                println!("Using pyenv Python (whisper-gui): {}", pyenv_python_gui);
+                pyenv_python_gui
+            } else if std::path::Path::new(&pyenv_python_gui3).exists() {
+                println!("Using pyenv Python (whisper-gui python3): {}", pyenv_python_gui3);
+                pyenv_python_gui3
+            } else {
+                println!("Pyenv Python not found, using system python3");
+                "python3".to_string()
+            }
         }
     };
     
@@ -476,8 +485,13 @@ async fn save_transcription(
 async fn save_to_downloads(content: &str, filename: &str) -> Result<String, String> {
     use std::io::Write;
     
-    let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/Users".to_string());
-    let downloads_dir = std::path::PathBuf::from(&home_dir).join("Downloads");
+    let downloads_dir = if cfg!(target_os = "windows") {
+        let user_profile = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
+        std::path::PathBuf::from(&user_profile).join("Downloads")
+    } else {
+        let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/Users".to_string());
+        std::path::PathBuf::from(&home_dir).join("Downloads")
+    };
     
     // Ensure Downloads directory exists
     if !downloads_dir.exists() {
@@ -540,8 +554,12 @@ async fn get_gpu_info() -> Result<String, String> {
                 candidates.into_iter().find(|p| p.join("patch_gpu.py").exists())
                     .unwrap_or_else(|| PathBuf::from("backend"))
             } else {
-                // macOS/Linux
-                PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+                // macOS/Linux fallback
+                if cfg!(target_os = "windows") {
+                    PathBuf::from("backend")
+                } else {
+                    PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+                }
             };
             
             if candidate1.join("patch_gpu.py").exists() {
@@ -665,20 +683,24 @@ async fn transcribe_audio(
     
     let transcribe_script = backend_dir.join("transcribe_simple.py");
     
-    // Get Python executable with better error handling
-    let home_dir = env::var("HOME").unwrap_or_else(|_| "/Users/ktsutsum".to_string());
-    let pyenv_python_web = format!("{}/.pyenv/versions/web-whisper/bin/python", home_dir);
-    let pyenv_python_gui = format!("{}/.pyenv/versions/whisper-gui/bin/python", home_dir);
-    
-    let python_cmd = if std::path::Path::new(&pyenv_python_web).exists() {
-        println!("Using pyenv Python (web-whisper): {}", pyenv_python_web);
-        pyenv_python_web
-    } else if std::path::Path::new(&pyenv_python_gui).exists() {
-        println!("Using pyenv Python (whisper-gui): {}", pyenv_python_gui);
-        pyenv_python_gui
+    // Get Python executable with better error handling (cross-platform)
+    let python_cmd = if cfg!(target_os = "windows") {
+        "python".to_string()
     } else {
-        println!("Using system Python: python3");
-        "python3".to_string()
+        let home_dir = env::var("HOME").unwrap_or_else(|_| "/Users/ktsutsum".to_string());
+        let pyenv_python_web = format!("{}/.pyenv/versions/web-whisper/bin/python", home_dir);
+        let pyenv_python_gui = format!("{}/.pyenv/versions/whisper-gui/bin/python", home_dir);
+        
+        if std::path::Path::new(&pyenv_python_web).exists() {
+            println!("Using pyenv Python (web-whisper): {}", pyenv_python_web);
+            pyenv_python_web
+        } else if std::path::Path::new(&pyenv_python_gui).exists() {
+            println!("Using pyenv Python (whisper-gui): {}", pyenv_python_gui);
+            pyenv_python_gui
+        } else {
+            println!("Using system Python: python3");
+            "python3".to_string()
+        }
     };
     
     println!("Transcribing file: {}", file_path);
