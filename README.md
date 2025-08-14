@@ -1,6 +1,6 @@
-# Web Whisper - Cross-platform Speech Recognition
+# Web Whisper - Windows Speech Recognition
 
-A high-performance, cross-platform speech-to-text application built with Tauri and optimized for both Apple Silicon and Windows GPU acceleration.
+A high-performance Windows speech-to-text application built with Tauri and optimized for NVIDIA GPU acceleration and Intel Graphics compatibility.
 
 ## 🏗️ Architecture
 
@@ -9,24 +9,26 @@ A high-performance, cross-platform speech-to-text application built with Tauri a
 │  Tauri GUI  │──WebView──▶│ whisper-gui  │  (Gradio)
 │  (Rust)     │  http://127│ (sidecar exe)│
 └─────────────┘◀─IPC(shell)─┴─────┬────────┘
-        │ Python env = pyenv+venv  │
-        │                          │OS Detection
-        │                          ▼
-        │        ┌─────────macOS────────┐   ┌────────Windows────────┐
-        └───────▶│ MLX + Metal GPU     │   │ faster-whisper + CUDA │
-                 └─────────────────────┘   └────────────────────────┘
-                    （Whisper large-v3 model shared）
+        │ Python env + dependencies │
+        │                           │GPU Detection
+        │                           ▼
+        │     ┌────NVIDIA GPU────┐   ┌────Intel GPU────┐
+        └────▶│ faster-whisper  │   │ CPU Processing  │
+              │ + CUDA          │   │ (CPU fallback)  │
+              └─────────────────┘   └─────────────────┘
+                  （Whisper large-v3 model shared）
 ```
 
 ## ✨ Features
 
-- **Cross-platform**: Native performance on macOS (Apple Silicon/Intel) and Windows
+- **Windows Native**: Optimized for Windows 10/11 x64 systems
 - **GPU Acceleration**: 
-  - Apple Silicon: MLX with Metal GPU acceleration
-  - Windows: CUDA acceleration with faster-whisper
-  - Automatic fallback to CPU when GPU unavailable
+  - NVIDIA GPU: CUDA acceleration with faster-whisper
+  - Intel Graphics: CPU processing with high efficiency
+  - Automatic GPU detection and optimal backend selection
+- **Portable Version**: Single EXE file - no installation required
 - **High Accuracy**: Uses Whisper large-v3 model for best transcription quality
-- **Standalone**: Self-contained executable with no external dependencies
+- **Standalone**: Self-contained executable with all dependencies bundled
 - **Modern UI**: Clean Tauri-based interface with embedded Gradio backend
 
 ## 🚀 Quick Start

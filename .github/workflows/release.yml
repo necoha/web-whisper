@@ -1,4 +1,4 @@
-name: Release
+name: Windows Release
 
 on:
   push:
@@ -194,10 +194,12 @@ jobs:
         body: |
           ## Web Whisper ${{ steps.version.outputs.version }}
           
-          🎤 Cross-platform speech-to-text application powered by OpenAI Whisper AI with GPU acceleration.
+          🎤 Windows speech-to-text application powered by OpenAI Whisper AI with GPU acceleration.
           
           ### 🚀 Features
-          - **Windows NVIDIA CUDA**: GPU acceleration for compatible graphics cards  
+          - **Windows NVIDIA CUDA**: GPU acceleration for compatible graphics cards
+          - **Intel GPU Compatible**: Works with Intel IRIS Graphics (CPU processing)  
+          - **Portable Version**: No installation required - single EXE file
           - **Smart File Saving**: Automatic text export with error recovery
           - **Drag & Drop Interface**: Simple audio file processing
           - **High Accuracy**: Whisper Large-v3 model for superior transcription

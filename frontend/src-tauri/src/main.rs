@@ -76,12 +76,8 @@ async fn start_gradio_server(
                 candidates.into_iter().find(|p| p.join("main.py").exists())
                     .unwrap_or_else(|| PathBuf::from("backend"))
             } else {
-                // macOS/Linux fallback
-                if cfg!(target_os = "windows") {
-                    PathBuf::from("backend")
-                } else {
-                    PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
-                }
+                // Default fallback
+                PathBuf::from("backend")
             };
             
             if candidate1.join("main.py").exists() {
@@ -92,22 +88,14 @@ async fn start_gradio_server(
                 candidate3
             }
         } else {
-            // Cross-platform fallback
-            if cfg!(target_os = "windows") {
-                let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
-                PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
-            } else {
-                PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
-            }
-        }
-    } else {
-        // Cross-platform fallback
-        if cfg!(target_os = "windows") {
+            // Windows fallback
             let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
             PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
-        } else {
-            PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
         }
+    } else {
+        // Windows fallback
+        let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
+        PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
     };
     
     let main_py = backend_dir.join("main.py");
@@ -178,50 +166,16 @@ async fn start_gradio_server(
         }
         found_python
     } else {
-        // macOS/Linux: Try to detect pyenv Python path
-        if cfg!(target_os = "windows") {
-            // Windows fallback - should not reach here due to earlier Windows detection
-            "python".to_string()
-        } else {
-            let home_dir = env::var("HOME").unwrap_or_else(|_| "/Users/ktsutsum".to_string());
-            let pyenv_python_web = format!("{}/.pyenv/versions/web-whisper/bin/python", home_dir);
-            let pyenv_python_gui = format!("{}/.pyenv/versions/whisper-gui/bin/python", home_dir);
-            let pyenv_python_web3 = format!("{}/.pyenv/versions/web-whisper/bin/python3", home_dir);
-            let pyenv_python_gui3 = format!("{}/.pyenv/versions/whisper-gui/bin/python3", home_dir);
-            
-            // Check if pyenv Python exists, prioritize web-whisper environment
-            if std::path::Path::new(&pyenv_python_web).exists() {
-                println!("Using pyenv Python (web-whisper): {}", pyenv_python_web);
-                pyenv_python_web
-            } else if std::path::Path::new(&pyenv_python_web3).exists() {
-                println!("Using pyenv Python (web-whisper python3): {}", pyenv_python_web3);
-                pyenv_python_web3
-            } else if std::path::Path::new(&pyenv_python_gui).exists() {
-                println!("Using pyenv Python (whisper-gui): {}", pyenv_python_gui);
-                pyenv_python_gui
-            } else if std::path::Path::new(&pyenv_python_gui3).exists() {
-                println!("Using pyenv Python (whisper-gui python3): {}", pyenv_python_gui3);
-                pyenv_python_gui3
-            } else {
-                println!("Pyenv Python not found, using system python3");
-                "python3".to_string()
-            }
-        }
+        // Should not reach here for Windows builds
+        "python".to_string()
     };
     
     // Use standard library Command instead of Tauri shell for better process control
     // Try sidecar first (bundled PyInstaller binary), then fall back to Python
-    let sidecar_candidates = if cfg!(target_os = "windows") {
-        vec![
-            app_dir.join("whisper-gui-core.exe"),
-            app_dir.join("whisper-gui-core-simple.exe"),
-        ]
-    } else {
-        vec![
-            app_dir.join("whisper-gui-core"),
-            app_dir.join("whisper-gui-core-simple"),
-        ]
-    };
+    let sidecar_candidates = vec![
+        app_dir.join("whisper-gui-core.exe"),
+        app_dir.join("whisper-gui-core-simple.exe"),
+    ];
 
     let mut child: std::process::Child;
     if let Some(bin_path) = sidecar_candidates.into_iter().find(|p| p.exists()) {
@@ -252,26 +206,18 @@ async fn start_gradio_server(
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         
-        // Add ffmpeg paths to environment (cross-platform)
+        // Add ffmpeg paths to environment (Windows)
         let current_path = env::var("PATH").unwrap_or_default();
-        let (ffmpeg_paths, separator) = if cfg!(target_os = "windows") {
-            (vec![
-                "C:\\ffmpeg\\bin",
-                "C:\\Program Files\\FFmpeg\\bin",
-                "C:\\Program Files (x86)\\FFmpeg\\bin",
-            ], ";")
-        } else {
-            (vec![
-                "/opt/homebrew/bin",
-                "/usr/local/bin", 
-                "/usr/bin"
-            ], ":")
-        };
+        let ffmpeg_paths = vec![
+            "C:\\ffmpeg\\bin",
+            "C:\\Program Files\\FFmpeg\\bin",
+            "C:\\Program Files (x86)\\FFmpeg\\bin",
+        ];
         
         let mut new_path = current_path.clone();
         for ffmpeg_path in ffmpeg_paths {
             if !new_path.contains(ffmpeg_path) {
-                new_path = format!("{}{}{}", ffmpeg_path, separator, new_path);
+                new_path = format!("{};{}", ffmpeg_path, new_path);
             }
         }
         cmd.env("PATH", new_path);
@@ -378,23 +324,11 @@ async fn open_whisper_gui(_app: tauri::AppHandle, state: State<'_, ServerState>)
     };
     
     if let Some(info) = server_info {
-        // Use shell to open the URL in default browser
-        if cfg!(target_os = "macos") {
-            std::process::Command::new("open")
-                .arg(&info.url)
-                .spawn()
-                .map_err(|e| format!("Failed to open URL: {}", e))?;
-        } else if cfg!(target_os = "windows") {
-            std::process::Command::new("cmd")
-                .args(["/c", "start", &info.url])
-                .spawn()
-                .map_err(|e| format!("Failed to open URL: {}", e))?;
-        } else {
-            std::process::Command::new("xdg-open")
-                .arg(&info.url)
-                .spawn()
-                .map_err(|e| format!("Failed to open URL: {}", e))?;
-        }
+        // Open URL in default browser (Windows)
+        std::process::Command::new("cmd")
+            .args(["/c", "start", &info.url])
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {}", e))?;
         Ok(())
     } else {
         Err("Whisper server is not running".to_string())
@@ -485,13 +419,8 @@ async fn save_transcription(
 async fn save_to_downloads(content: &str, filename: &str) -> Result<String, String> {
     use std::io::Write;
     
-    let downloads_dir = if cfg!(target_os = "windows") {
-        let user_profile = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
-        std::path::PathBuf::from(&user_profile).join("Downloads")
-    } else {
-        let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/Users".to_string());
-        std::path::PathBuf::from(&home_dir).join("Downloads")
-    };
+    let user_profile = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
+    let downloads_dir = std::path::PathBuf::from(&user_profile).join("Downloads");
     
     // Ensure Downloads directory exists
     if !downloads_dir.exists() {
@@ -554,12 +483,8 @@ async fn get_gpu_info() -> Result<String, String> {
                 candidates.into_iter().find(|p| p.join("patch_gpu.py").exists())
                     .unwrap_or_else(|| PathBuf::from("backend"))
             } else {
-                // macOS/Linux fallback
-                if cfg!(target_os = "windows") {
-                    PathBuf::from("backend")
-                } else {
-                    PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
-                }
+                // Default fallback
+                PathBuf::from("backend")
             };
             
             if candidate1.join("patch_gpu.py").exists() {
@@ -570,40 +495,18 @@ async fn get_gpu_info() -> Result<String, String> {
                 candidate3
             }
         } else {
-            // Cross-platform fallback
-            if cfg!(target_os = "windows") {
-                let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
-                PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
-            } else {
-                PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
-            }
-        }
-    } else {
-        // Cross-platform fallback
-        if cfg!(target_os = "windows") {
+            // Windows fallback
             let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
             PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
-        } else {
-            PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
         }
+    } else {
+        // Windows fallback
+        let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
+        PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
     };
     
-    // Get Python executable (cross-platform)
-    let python_cmd = if cfg!(target_os = "windows") {
-        "python".to_string()
-    } else {
-        let home_dir = env::var("HOME").unwrap_or_else(|_| "/Users/ktsutsum".to_string());
-        let pyenv_python_web = format!("{}/.pyenv/versions/web-whisper/bin/python", home_dir);
-        let pyenv_python_gui = format!("{}/.pyenv/versions/whisper-gui/bin/python", home_dir);
-        
-        if std::path::Path::new(&pyenv_python_web).exists() {
-            pyenv_python_web
-        } else if std::path::Path::new(&pyenv_python_gui).exists() {
-            pyenv_python_gui
-        } else {
-            "python3".to_string()
-        }
-    };
+    // Get Python executable (Windows only)
+    let python_cmd = "python".to_string();
     
     // Run GPU detection script
     let output = Command::new(&python_cmd)
@@ -663,45 +566,20 @@ async fn transcribe_audio(
                 candidate3
             }
         } else {
-            // Cross-platform fallback
-            if cfg!(target_os = "windows") {
-                let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
-                PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
-            } else {
-                PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
-            }
-        }
-    } else {
-        // Cross-platform fallback
-        if cfg!(target_os = "windows") {
+            // Windows fallback
             let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
             PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
-        } else {
-            PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
         }
+    } else {
+        // Windows fallback
+        let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
+        PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
     };
     
     let transcribe_script = backend_dir.join("transcribe_simple.py");
     
-    // Get Python executable with better error handling (cross-platform)
-    let python_cmd = if cfg!(target_os = "windows") {
-        "python".to_string()
-    } else {
-        let home_dir = env::var("HOME").unwrap_or_else(|_| "/Users/ktsutsum".to_string());
-        let pyenv_python_web = format!("{}/.pyenv/versions/web-whisper/bin/python", home_dir);
-        let pyenv_python_gui = format!("{}/.pyenv/versions/whisper-gui/bin/python", home_dir);
-        
-        if std::path::Path::new(&pyenv_python_web).exists() {
-            println!("Using pyenv Python (web-whisper): {}", pyenv_python_web);
-            pyenv_python_web
-        } else if std::path::Path::new(&pyenv_python_gui).exists() {
-            println!("Using pyenv Python (whisper-gui): {}", pyenv_python_gui);
-            pyenv_python_gui
-        } else {
-            println!("Using system Python: python3");
-            "python3".to_string()
-        }
-    };
+    // Get Python executable (Windows only)
+    let python_cmd = "python".to_string();
     
     println!("Transcribing file: {}", file_path);
     
@@ -720,28 +598,18 @@ async fn transcribe_audio(
         ])
         .current_dir(&backend_dir);
     
-    // Add ffmpeg path to environment - cross platform
+    // Add ffmpeg path to environment (Windows)
     let current_path = env::var("PATH").unwrap_or_default();
-    let ffmpeg_paths = if cfg!(target_os = "windows") {
-        vec![
-            "C:\\ffmpeg\\bin",
-            "C:\\Program Files\\FFmpeg\\bin",
-            "C:\\Program Files (x86)\\FFmpeg\\bin",
-        ]
-    } else {
-        vec![
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "/usr/bin"
-        ]
-    };
+    let ffmpeg_paths = vec![
+        "C:\\ffmpeg\\bin",
+        "C:\\Program Files\\FFmpeg\\bin",
+        "C:\\Program Files (x86)\\FFmpeg\\bin",
+    ];
     
     let mut new_path = current_path.clone();
-    let separator = if cfg!(target_os = "windows") { ";" } else { ":" };
-    
     for ffmpeg_path in ffmpeg_paths {
         if !new_path.contains(ffmpeg_path) {
-            new_path = format!("{}{}{}", ffmpeg_path, separator, new_path);
+            new_path = format!("{};{}", ffmpeg_path, new_path);
         }
     }
     
@@ -769,18 +637,11 @@ async fn stop_whisper_server(process_state: State<'_, ProcessState>) -> Result<(
     if let Some(pid) = process_id {
         println!("Stopping Python server with PID: {}", pid);
         
-        // Kill the process
-        if cfg!(target_os = "windows") {
-            Command::new("taskkill")
-                .args(&["/F", "/PID", &pid.to_string()])
-                .output()
-                .map_err(|e| format!("Failed to kill process: {}", e))?;
-        } else {
-            Command::new("kill")
-                .args(&["-9", &pid.to_string()])
-                .output()
-                .map_err(|e| format!("Failed to kill process: {}", e))?;
-        }
+        // Kill the process (Windows)
+        Command::new("taskkill")
+            .args(&["/F", "/PID", &pid.to_string()])
+            .output()
+            .map_err(|e| format!("Failed to kill process: {}", e))?;
         
         // Clear process state
         {
@@ -836,15 +697,9 @@ fn main() {
                                 guard.clone()
                             } {
                                 println!("Cleaning up Python server process: {}", pid);
-                                if cfg!(target_os = "windows") {
-                                    let _ = Command::new("taskkill")
-                                        .args(&["/F", "/PID", &pid.to_string()])
-                                        .output();
-                                } else {
-                                    let _ = Command::new("kill")
-                                        .args(&["-9", &pid.to_string()])
-                                        .output();
-                                }
+                                let _ = Command::new("taskkill")
+                                    .args(&["/F", "/PID", &pid.to_string()])
+                                    .output();
                             }
                         }
                     });
