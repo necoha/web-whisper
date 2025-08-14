@@ -470,12 +470,19 @@ async fn get_gpu_info() -> Result<String, String> {
     let current_exe = env::current_exe().map_err(|e| format!("Failed to get current exe: {}", e))?;
     let app_dir = current_exe.parent().unwrap();
     
-    // Find backend directory
+    // Find backend directory (cross-platform)
     let backend_dir = if let Some(parent) = app_dir.parent() {
         if let Some(grandparent) = parent.parent() {
             let candidate1 = grandparent.join("backend");
             let candidate2 = grandparent.join("../backend");
-            let candidate3 = PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend");
+            
+            // Cross-platform fallback paths
+            let candidate3 = if cfg!(target_os = "windows") {
+                let user_profile = env::var("USERPROFILE").unwrap_or_default();
+                PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
+            } else {
+                PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+            };
             
             if candidate1.join("patch_gpu.py").exists() {
                 candidate1
@@ -485,19 +492,39 @@ async fn get_gpu_info() -> Result<String, String> {
                 candidate3
             }
         } else {
-            PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+            // Cross-platform fallback
+            if cfg!(target_os = "windows") {
+                let user_profile = env::var("USERPROFILE").unwrap_or_default();
+                PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
+            } else {
+                PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+            }
         }
     } else {
-        PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+        // Cross-platform fallback
+        if cfg!(target_os = "windows") {
+            let user_profile = env::var("USERPROFILE").unwrap_or_default();
+            PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
+        } else {
+            PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+        }
     };
     
-    // Get Python executable
-    let home_dir = env::var("HOME").unwrap_or_else(|_| "/Users/ktsutsum".to_string());
-    let pyenv_python_web = format!("{}/.pyenv/versions/web-whisper/bin/python", home_dir);
-    let python_cmd = if std::path::Path::new(&pyenv_python_web).exists() {
-        pyenv_python_web
+    // Get Python executable (cross-platform)
+    let python_cmd = if cfg!(target_os = "windows") {
+        "python".to_string()
     } else {
-        "python3".to_string()
+        let home_dir = env::var("HOME").unwrap_or_else(|_| "/Users/ktsutsum".to_string());
+        let pyenv_python_web = format!("{}/.pyenv/versions/web-whisper/bin/python", home_dir);
+        let pyenv_python_gui = format!("{}/.pyenv/versions/whisper-gui/bin/python", home_dir);
+        
+        if std::path::Path::new(&pyenv_python_web).exists() {
+            pyenv_python_web
+        } else if std::path::Path::new(&pyenv_python_gui).exists() {
+            pyenv_python_gui
+        } else {
+            "python3".to_string()
+        }
     };
     
     // Run GPU detection script

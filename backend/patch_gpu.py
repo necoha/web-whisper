@@ -133,16 +133,84 @@ def get_gpu_info():
             return "⚠️ Apple Silicon detected, but MLX initialization failed"
     elif system == "Darwin":
         return "💻 Intel Mac (CPU処理)"
+    elif system == "Windows":
+        # Windows GPU detection
+        gpu_info = _detect_windows_gpu()
+        return gpu_info
     else:
+        # Linux and other systems
+        return _detect_generic_gpu()
+
+def _detect_windows_gpu():
+    """Detect GPU on Windows systems"""
+    try:
+        # Try faster-whisper's CUDA detection first
+        try:
+            from faster_whisper import WhisperModel
+            # Test CUDA availability by trying to create a model
+            model = WhisperModel("tiny", device="cuda", compute_type="float16")
+            # If we get here, CUDA is working
+            gpu_name = _get_nvidia_gpu_name()
+            return f"🎮 NVIDIA GPU ({gpu_name}) - CUDA加速"
+        except Exception:
+            pass
+        
+        # Try PyTorch CUDA detection
         try:
             import torch
             if torch.cuda.is_available():
                 gpu_name = torch.cuda.get_device_name(0)
                 return f"🎮 NVIDIA GPU ({gpu_name}) - CUDA加速"
-            else:
-                return "💻 CPU処理 (CUDA利用不可)"
         except ImportError:
-            return "💻 CPU処理 (PyTorch未インストール)"
+            pass
+        
+        # Try WMI GPU detection (Windows-specific)
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['wmic', 'path', 'win32_VideoController', 'get', 'name'],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                gpu_names = [line.strip() for line in lines[1:] if line.strip()]
+                if gpu_names:
+                    gpu_name = gpu_names[0]
+                    if 'nvidia' in gpu_name.lower():
+                        return f"🎮 {gpu_name} (CUDA未設定)"
+                    else:
+                        return f"💻 {gpu_name} (CPU処理)"
+        except Exception:
+            pass
+            
+        return "💻 CPU処理 (GPU検出失敗)"
+        
+    except Exception as e:
+        return f"💻 CPU処理 (GPU情報取得エラー: {str(e)[:50]})"
+
+def _get_nvidia_gpu_name():
+    """Get NVIDIA GPU name on Windows"""
+    try:
+        import subprocess
+        result = subprocess.run(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'], 
+                              capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            return result.stdout.strip().split('\n')[0]
+    except:
+        pass
+    return "NVIDIA GPU"
+
+def _detect_generic_gpu():
+    """Generic GPU detection for Linux and other systems"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name(0)
+            return f"🎮 NVIDIA GPU ({gpu_name}) - CUDA加速"
+        else:
+            return "💻 CPU処理 (CUDA利用不可)"
+    except ImportError:
+        return "💻 CPU処理 (PyTorch未インストール)"
 
 # Enhanced version with more detailed transcription options
 def auto_engine_detailed(model_choice="🎯 High Accuracy"):
