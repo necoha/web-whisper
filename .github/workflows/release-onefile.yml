@@ -1,0 +1,215 @@
+name: Windows Onefile Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.5)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.11"
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup pnpm via packageManager field
+        working-directory: frontend
+        run: corepack use pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            frontend/src-tauri/target
+            ~/.pnpm-store
+            ~\AppData\Local\pip\Cache
+          key: windows-onefile-${{ hashFiles('frontend/src-tauri/Cargo.lock', 'frontend/pnpm-lock.yaml', 'backend/requirements.txt') }}
+          restore-keys: |
+            windows-onefile-
+
+      - name: Install Python dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build backend executable
+        working-directory: backend
+        run: |
+          pyinstaller main.py --onefile --name whisper-gui-core.exe `
+            --collect-all faster_whisper `
+            --collect-all ctranslate2 `
+            --collect-all gradio `
+            --collect-all gradio_client `
+            --collect-data safehttpx `
+            --collect-data gradio_client `
+            --collect-data groovy `
+            --add-data "configs;configs" `
+            --add-data "scripts;scripts" `
+            --hidden-import=mlx_whisper `
+            --hidden-import=faster_whisper `
+            --hidden-import=ctranslate2 `
+            --hidden-import=gradio `
+            --hidden-import=safehttpx `
+            --console
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Tauri icons
+        working-directory: frontend
+        run: pnpm tauri icon src-tauri/icons/icon.png
+
+      - name: Build Tauri application
+        working-directory: frontend
+        run: pnpm tauri build --target x86_64-pc-windows-msvc
+
+      - name: Package artifacts (portable/msi/nsis/backend)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path releases -Force | Out-Null
+
+          $appDir = "frontend\src-tauri\target\x86_64-pc-windows-msvc\release"
+          $portable = Get-ChildItem $appDir -Filter "Web Whisper.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $portable) { $portable = Get-ChildItem $appDir -Filter "web-whisper.exe" -ErrorAction SilentlyContinue | Select-Object -First 1 }
+          if (-not $portable) { $portable = Get-ChildItem $appDir -Filter *.exe -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(?i)web([ -])?whisper(.*)\.exe$' } | Select-Object -First 1 }
+          if ($portable) { Copy-Item $portable.FullName "releases\web-whisper-portable.exe" -Force } else { throw "Portable EXE not found" }
+
+          $msiDir = "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\msi"
+          $msi = Get-ChildItem $msiDir -Filter *.msi -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($msi) { Copy-Item $msi.FullName "releases\web-whisper-windows-x64.msi" -Force }
+
+          $nsisDir = "frontend\src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis"
+          $nsis = Get-ChildItem $nsisDir -Filter *.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($nsis) { Copy-Item $nsis.FullName "releases\web-whisper-windows-x64-installer.exe" -Force }
+
+          $backendExe = "backend\dist\whisper-gui-core.exe"
+          if (Test-Path $backendExe) { Copy-Item $backendExe "releases\whisper-gui-core.exe" -Force } else { throw "Backend exe not found: $backendExe" }
+
+      - name: Ensure 7-Zip available
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not (Get-Command 7z -ErrorAction SilentlyContinue)) {
+            Write-Host "7z not found. Installing via choco..."
+            choco install 7zip -y --no-progress
+          } else {
+            Write-Host "7z is available."
+          }
+
+      - name: Build offline onefile EXE (SFX)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path onefile -Force | Out-Null
+          Copy-Item releases\web-whisper-portable.exe onefile\ -Force
+          Copy-Item releases\whisper-gui-core.exe onefile\ -Force
+
+          # ffmpeg bundle
+          $ffUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          $ffZip = "ffmpeg.zip"
+          Invoke-WebRequest -Uri $ffUrl -OutFile $ffZip -UseBasicParsing
+          Expand-Archive -Path $ffZip -DestinationPath ffmpeg -Force
+          $ffExe = Get-ChildItem -Path ffmpeg -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          if (-not $ffExe) { throw "ffmpeg.exe not found after extraction" }
+          Copy-Item $ffExe.FullName onefile\ffmpeg.exe -Force
+
+          # WebView2 offline via winget (fallback to bootstrapper if needed)
+          $wvDir = "onefile"
+          $winget = Get-Command winget -ErrorAction SilentlyContinue
+          $wvOk = $false
+          if ($winget) {
+            $dlCmd = "winget download --id Microsoft.EdgeWebView2Runtime --architecture x64 --accept-source-agreements --accept-package-agreements --download-directory `"$wvDir`""
+            cmd /c $dlCmd
+            if ($LASTEXITCODE -eq 0) {
+              $wvInst = Get-ChildItem $wvDir -Filter *WebView2*Installer*X64*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($wvInst) {
+                Move-Item $wvInst.FullName (Join-Path $wvDir 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe') -Force
+                $wvOk = $true
+              }
+            }
+          }
+          if (-not $wvOk) {
+            # Fallback: Evergreen bootstrapper (requires internet at first run)
+            Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile (Join-Path $wvDir 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe') -UseBasicParsing
+          }
+
+          # Launcher
+          $launcher = @'
+@echo off
+setlocal
+set SCRIPT_DIR=%~dp0
+if exist "%SCRIPT_DIR%MicrosoftEdgeWebView2RuntimeInstallerX64.exe" (
+  "%SCRIPT_DIR%MicrosoftEdgeWebView2RuntimeInstallerX64.exe" /silent /install >nul 2>&1
+)
+set PATH=%SCRIPT_DIR%;%PATH%
+start "" "%SCRIPT_DIR%web-whisper-portable.exe"
+endlocal
+'@
+          Set-Content -Path onefile\run.bat -Value $launcher -Encoding ASCII
+
+          # SFX config
+          $sfxCfg = @'
+;!@Install@!UTF-8!
+Title="Web Whisper (Offline Onefile)"
+RunProgram="run.bat"
+;!@InstallEnd@!
+'@
+          Set-Content -Path config.txt -Value $sfxCfg -Encoding UTF8
+
+          # 7z SFX build
+          & 7z a -t7z -mx=9 onefile.7z .\onefile\* | Out-Null
+          $sfx = "$Env:ProgramFiles\7-Zip\7zsd.sfx"
+          if (-not (Test-Path $sfx)) { $sfx = "$Env:ProgramFiles(x86)\7-Zip\7zsd.sfx" }
+          if (-not (Test-Path $sfx)) { throw "7z SFX module not found" }
+          New-Item -ItemType Directory -Path releases -Force | Out-Null
+          cmd /c copy /b "$sfx"+"config.txt"+"onefile.7z" "releases\web-whisper-onefile.exe" > nul
+
+      - name: Create GitHub Release (onefile)
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ inputs.version }}
+          name: Web Whisper ${{ inputs.version }}
+          files: releases/*
+          generate_release_notes: true
+          body: |
+            ## Web Whisper ${{ inputs.version }} (Onefile)
+
+            - Includes offline onefile: `web-whisper-onefile.exe`
+            - Also provides portable, MSI, NSIS, and backend executables
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
