@@ -170,75 +170,60 @@ jobs:
           Write-Host "7z is available."
         }
 
-    - name: Build single-file offline EXE (SFX)
+    - name: Build single-file onefile Lite (SFX)
       shell: pwsh
       run: |
         $ErrorActionPreference = "Stop"
-        
         # Staging directory
         New-Item -ItemType Directory -Path onefile -Force | Out-Null
         Copy-Item releases\web-whisper-portable.exe onefile\ -Force
         Copy-Item releases\whisper-gui-core.exe onefile\ -Force
-        
-        # Download ffmpeg static build (essentials)
-        $ffUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-        $ffZip = "ffmpeg.zip"
-        Write-Host "Downloading ffmpeg from $ffUrl"
-        Invoke-WebRequest -Uri $ffUrl -OutFile $ffZip -UseBasicParsing
-        Expand-Archive -Path $ffZip -DestinationPath ffmpeg -Force
-        $ffExe = Get-ChildItem -Path ffmpeg -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-        if ($ffExe) {
-          Copy-Item $ffExe.FullName onefile\ffmpeg.exe -Force
-          Write-Host "Bundled ffmpeg: $($ffExe.FullName)"
-        } else {
-          Write-Host "ffmpeg.exe not found after extraction"
-          exit 1
-        }
-        
-        # Download WebView2 Evergreen Standalone (offline) using winget
-        # This allows offline install at first run
-        $wvDir = "onefile"
-        Write-Host "Downloading WebView2 Evergreen Standalone (x64) via winget"
-        $winget = Get-Command winget -ErrorAction SilentlyContinue
-        if (-not $winget) { Write-Host "winget not found on runner"; exit 1 }
-        # Newer winget supports 'download' verb
-        $dlCmd = "winget download --id Microsoft.EdgeWebView2Runtime --architecture x64 --accept-source-agreements --accept-package-agreements --download-directory `"$wvDir`""
-        Write-Host $dlCmd
-        $LASTEXITCODE = 0
-        cmd /c $dlCmd
-        if ($LASTEXITCODE -ne 0) {
-          Write-Host "winget download failed (exit $LASTEXITCODE)"
-          exit 1
-        }
-        # Rename installer if present
-        $wvInst = Get-ChildItem $wvDir -Filter *WebView2*Installer*X64*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($wvInst) {
-          Move-Item $wvInst.FullName (Join-Path $wvDir 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe') -Force
-          Write-Host "Bundled WebView2 offline installer."
-        } else {
-          Write-Host "WebView2 offline installer not found in $wvDir"
-          exit 1
-        }
-        
-        # Create launcher script (runs offline WebView2 installer silently, then app)
-        $launcher = @'
-@echo off
-setlocal
-set SCRIPT_DIR=%~dp0
-if exist "%SCRIPT_DIR%MicrosoftEdgeWebView2RuntimeInstallerX64.exe" (
-  "%SCRIPT_DIR%MicrosoftEdgeWebView2RuntimeInstallerX64.exe" /silent /install >nul 2>&1
-)
-set PATH=%SCRIPT_DIR%;%PATH%
-start "" "%SCRIPT_DIR%web-whisper-portable.exe"
-endlocal
+
+        # PowerShell launcher for Lite (downloads deps on first run)
+        $launcherPs1 = @'
+Param()
+$ErrorActionPreference = "Stop"
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$BinDir = Join-Path $env:LOCALAPPDATA 'WebWhisper\bin'
+New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
+
+# Ensure ffmpeg
+$FfmpegPath = Join-Path $BinDir 'ffmpeg.exe'
+if (-not (Test-Path $FfmpegPath)) {
+  Write-Host 'Downloading ffmpeg (first run only)...'
+  $ffUrl = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+  $tmpZip = Join-Path $env:TEMP ('ffmpeg_' + [Guid]::NewGuid().ToString() + '.zip')
+  Invoke-WebRequest -Uri $ffUrl -OutFile $tmpZip -UseBasicParsing
+  $tmpDir = Join-Path $env:TEMP ('ffmpeg_' + [Guid]::NewGuid().ToString())
+  New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+  Expand-Archive -Path $tmpZip -DestinationPath $tmpDir -Force
+  $ffExe = Get-ChildItem -Path $tmpDir -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+  if (-not $ffExe) { throw 'ffmpeg.exe not found in downloaded archive' }
+  Copy-Item $ffExe.FullName $FfmpegPath -Force
+}
+
+# Ensure WebView2 via bootstrapper
+$Bootstrapper = Join-Path $ScriptDir 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe'
+if (-not (Test-Path $Bootstrapper)) {
+  try { Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $Bootstrapper -UseBasicParsing } catch { Write-Warning 'Failed to download WebView2 bootstrapper.' }
+}
+if (Test-Path $Bootstrapper) {
+  Start-Process -FilePath $Bootstrapper -ArgumentList '/silent','/install' -Wait -NoNewWindow
+}
+
+# Prepend bin to PATH and launch
+$env:PATH = "$BinDir;" + $env:PATH
+Start-Process -FilePath (Join-Path $ScriptDir 'web-whisper-portable.exe') -WorkingDirectory $ScriptDir
 '@
-        Set-Content -Path onefile\run.bat -Value $launcher -Encoding ASCII
-        
-        # Create SFX config for 7-Zip
+        Set-Content -Path onefile\run.ps1 -Value $launcherPs1 -Encoding UTF8
+
+        # SFX config for 7-Zip (Lite)
         $sfxCfg = @'
 ;!@Install@!UTF-8!
-Title="Web Whisper (Offline Onefile)"
-RunProgram="run.bat"
+Title="Web Whisper (Onefile Lite)"
+RunProgram="powershell -NoProfile -ExecutionPolicy Bypass -File run.ps1"
 ;!@InstallEnd@!
 '@
         Set-Content -Path config.txt -Value $sfxCfg -Encoding UTF8
@@ -251,10 +236,10 @@ RunProgram="run.bat"
         if (-not (Test-Path $sfx)) { $sfx = "$Env:ProgramFiles(x86)\7-Zip\7zsd.sfx" }
         if (-not (Test-Path $sfx)) { Write-Host "7z SFX module not found"; exit 1 }
         
-        # Build final single-file EXE by concatenation
-        cmd /c copy /b "$sfx"+"config.txt"+"onefile.7z" "releases\web-whisper-onefile.exe" > nul
-        
-        Write-Host "Created onefile: releases\\web-whisper-onefile.exe"
+        # Build final single-file EXE by concatenation (Lite)
+        cmd /c copy /b "$sfx"+"config.txt"+"onefile.7z" "releases\web-whisper-onefile-lite.exe" > nul
+
+        Write-Host "Created onefile (Lite): releases\\web-whisper-onefile-lite.exe"
         
     - name: Upload Windows artifacts
       uses: actions/upload-artifact@v4
@@ -316,6 +301,7 @@ RunProgram="run.bat"
           ### 📦 Downloads
           
           **Windows (64-bit):**
+          - `web-whisper-onefile-lite.exe` - 🔻 Onefile Lite (first run downloads deps)
           - `web-whisper-portable.exe` - 🚀 **Portable standalone EXE** (No installation required)
           - `web-whisper-windows-x64.msi` - MSI installer
           - `web-whisper-windows-x64-installer.exe` - Alternative EXE installer  
