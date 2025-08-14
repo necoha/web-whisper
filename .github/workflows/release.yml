@@ -108,10 +108,21 @@ jobs:
         
         # --- Portable standalone EXE ---
         $appDir = "frontend\src-tauri\target\x86_64-pc-windows-msvc\release"
-        $appExe = Get-ChildItem $appDir -Filter "Web Whisper.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($appExe) {
-          Copy-Item $appExe.FullName "releases\web-whisper-portable.exe" -Force
-          Write-Host "Packaged portable EXE: $($appExe.Name)"
+        $portable = $null
+        # Try common Tauri binary names
+        $portable = Get-ChildItem $appDir -Filter "Web Whisper.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $portable) {
+          $portable = Get-ChildItem $appDir -Filter "web-whisper.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        }
+        if (-not $portable) {
+          # Fallback: any exe that matches web whisper naming (case-insensitive)
+          $portable = Get-ChildItem $appDir -Filter *.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(?i)web([ -])?whisper(.*)\.exe$' } |
+            Select-Object -First 1
+        }
+        if ($portable) {
+          Copy-Item $portable.FullName "releases\web-whisper-portable.exe" -Force
+          Write-Host "Packaged portable EXE: $($portable.Name)"
         } else {
           Write-Host "No portable EXE found in $appDir"
         }
