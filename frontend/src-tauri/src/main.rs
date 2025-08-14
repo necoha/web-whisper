@@ -56,12 +56,29 @@ async fn start_gradio_server(
     let current_exe = env::current_exe().map_err(|e| format!("Failed to get current exe: {}", e))?;
     let app_dir = current_exe.parent().unwrap();
     
-    // Look for Python backend - try multiple possible locations
+    // Look for Python backend - try multiple possible locations (cross-platform)
     let backend_dir = if let Some(parent) = app_dir.parent() {
         if let Some(grandparent) = parent.parent() {
             let candidate1 = grandparent.join("backend");
             let candidate2 = grandparent.join("../backend");
-            let candidate3 = PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend");
+            
+            // Cross-platform fallback paths
+            let candidate3 = if cfg!(target_os = "windows") {
+                // Windows: Try common development locations
+                let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
+                let mut candidates = vec![
+                    PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile)),
+                    PathBuf::from("C:\\web-whisper\\backend"),
+                    PathBuf::from("backend"), // Relative to current directory
+                ];
+                
+                // Find first existing candidate
+                candidates.into_iter().find(|p| p.join("main.py").exists())
+                    .unwrap_or_else(|| PathBuf::from("backend"))
+            } else {
+                // macOS/Linux
+                PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+            };
             
             if candidate1.join("main.py").exists() {
                 candidate1
@@ -71,10 +88,22 @@ async fn start_gradio_server(
                 candidate3
             }
         } else {
-            PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+            // Cross-platform fallback
+            if cfg!(target_os = "windows") {
+                let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
+                PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
+            } else {
+                PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+            }
         }
     } else {
-        PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+        // Cross-platform fallback
+        if cfg!(target_os = "windows") {
+            let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
+            PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
+        } else {
+            PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+        }
     };
     
     let main_py = backend_dir.join("main.py");
@@ -106,15 +135,19 @@ async fn start_gradio_server(
     
     // Get Python executable with cross-platform support
     let python_cmd = if cfg!(target_os = "windows") {
-        // Windows: Try multiple Python locations
+        // Windows: Try multiple Python locations with proper error handling
+        let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
         let candidates = vec![
             "python".to_string(),
             "py".to_string(),
             "python3".to_string(),
-            format!("{}\\AppData\\Local\\Programs\\Python\\Python311\\python.exe", env::var("USERPROFILE").unwrap_or_default()),
-            format!("{}\\AppData\\Local\\Programs\\Python\\Python312\\python.exe", env::var("USERPROFILE").unwrap_or_default()),
+            format!("{}\\AppData\\Local\\Programs\\Python\\Python311\\python.exe", user_profile),
+            format!("{}\\AppData\\Local\\Programs\\Python\\Python312\\python.exe", user_profile),
+            format!("{}\\AppData\\Local\\Programs\\Python\\Python313\\python.exe", user_profile),
             "C:\\Python311\\python.exe".to_string(),
             "C:\\Python312\\python.exe".to_string(),
+            "C:\\Python313\\python.exe".to_string(),
+            "python.exe".to_string(),
         ];
         
         let mut found_python = "python".to_string();
@@ -195,24 +228,41 @@ async fn start_gradio_server(
     } else {
         println!("No bundled sidecar found; falling back to Python: {}", python_cmd);
         let _ = app_handle.emit("engine-progress", serde_json::json!({"percent": 5, "message": "Launching Python backend"}));
+        
+        // Verify backend directory and main.py exist
+        if !backend_dir.exists() {
+            return Err(format!("Backend directory not found: {:?}", backend_dir));
+        }
+        if !main_py.exists() {
+            return Err(format!("main.py not found: {:?}", main_py));
+        }
+        
         let mut cmd = Command::new(python_cmd.clone());
         cmd.args(&[main_py.to_str().unwrap(), "--server.name", "127.0.0.1", "--server.port", &chosen_port.to_string()])
             .current_dir(&backend_dir)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         
-        // Add ffmpeg paths to environment
+        // Add ffmpeg paths to environment (cross-platform)
         let current_path = env::var("PATH").unwrap_or_default();
-        let ffmpeg_paths = vec![
-            "/opt/homebrew/bin",
-            "/usr/local/bin", 
-            "/usr/bin"
-        ];
+        let (ffmpeg_paths, separator) = if cfg!(target_os = "windows") {
+            (vec![
+                "C:\\ffmpeg\\bin",
+                "C:\\Program Files\\FFmpeg\\bin",
+                "C:\\Program Files (x86)\\FFmpeg\\bin",
+            ], ";")
+        } else {
+            (vec![
+                "/opt/homebrew/bin",
+                "/usr/local/bin", 
+                "/usr/bin"
+            ], ":")
+        };
         
         let mut new_path = current_path.clone();
         for ffmpeg_path in ffmpeg_paths {
             if !new_path.contains(ffmpeg_path) {
-                new_path = format!("{}:{}", ffmpeg_path, new_path);
+                new_path = format!("{}{}{}", ffmpeg_path, separator, new_path);
             }
         }
         cmd.env("PATH", new_path);
@@ -470,7 +520,7 @@ async fn get_gpu_info() -> Result<String, String> {
     let current_exe = env::current_exe().map_err(|e| format!("Failed to get current exe: {}", e))?;
     let app_dir = current_exe.parent().unwrap();
     
-    // Find backend directory (cross-platform)
+    // Find backend directory (cross-platform) - reuse same logic as start_gradio_server
     let backend_dir = if let Some(parent) = app_dir.parent() {
         if let Some(grandparent) = parent.parent() {
             let candidate1 = grandparent.join("backend");
@@ -478,9 +528,19 @@ async fn get_gpu_info() -> Result<String, String> {
             
             // Cross-platform fallback paths
             let candidate3 = if cfg!(target_os = "windows") {
-                let user_profile = env::var("USERPROFILE").unwrap_or_default();
-                PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
+                // Windows: Try common development locations
+                let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
+                let mut candidates = vec![
+                    PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile)),
+                    PathBuf::from("C:\\web-whisper\\backend"),
+                    PathBuf::from("backend"), // Relative to current directory
+                ];
+                
+                // Find first existing candidate
+                candidates.into_iter().find(|p| p.join("patch_gpu.py").exists())
+                    .unwrap_or_else(|| PathBuf::from("backend"))
             } else {
+                // macOS/Linux
                 PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
             };
             
@@ -494,7 +554,7 @@ async fn get_gpu_info() -> Result<String, String> {
         } else {
             // Cross-platform fallback
             if cfg!(target_os = "windows") {
-                let user_profile = env::var("USERPROFILE").unwrap_or_default();
+                let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
                 PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
             } else {
                 PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
@@ -503,7 +563,7 @@ async fn get_gpu_info() -> Result<String, String> {
     } else {
         // Cross-platform fallback
         if cfg!(target_os = "windows") {
-            let user_profile = env::var("USERPROFILE").unwrap_or_default();
+            let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
             PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
         } else {
             PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
@@ -553,7 +613,7 @@ async fn transcribe_audio(
     let current_exe = env::current_exe().map_err(|e| format!("Failed to get current exe: {}", e))?;
     let app_dir = current_exe.parent().unwrap();
     
-    // Find backend directory
+    // Find backend directory - reuse same logic as start_gradio_server
     let backend_dir = if let Some(parent) = app_dir.parent() {
         if let Some(grandparent) = parent.parent() {
             let candidate1 = grandparent.join("backend");
@@ -561,9 +621,17 @@ async fn transcribe_audio(
             
             // Cross-platform fallback paths
             let candidate3 = if cfg!(target_os = "windows") {
-                // Windows: Try common locations
-                let user_profile = env::var("USERPROFILE").unwrap_or_default();
-                PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
+                // Windows: Try common development locations
+                let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
+                let mut candidates = vec![
+                    PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile)),
+                    PathBuf::from("C:\\web-whisper\\backend"),
+                    PathBuf::from("backend"), // Relative to current directory
+                ];
+                
+                // Find first existing candidate
+                candidates.into_iter().find(|p| p.join("transcribe_simple.py").exists())
+                    .unwrap_or_else(|| PathBuf::from("backend"))
             } else {
                 // macOS/Linux: Current development path
                 PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
@@ -579,7 +647,7 @@ async fn transcribe_audio(
         } else {
             // Cross-platform fallback
             if cfg!(target_os = "windows") {
-                let user_profile = env::var("USERPROFILE").unwrap_or_default();
+                let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
                 PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
             } else {
                 PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
@@ -588,7 +656,7 @@ async fn transcribe_audio(
     } else {
         // Cross-platform fallback
         if cfg!(target_os = "windows") {
-            let user_profile = env::var("USERPROFILE").unwrap_or_default();
+            let user_profile = env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
             PathBuf::from(format!("{}\\Documents\\web-whisper\\backend", user_profile))
         } else {
             PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
