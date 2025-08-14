@@ -158,6 +158,103 @@ jobs:
         
         Write-Host "`nCreated Windows release artifacts:"
         Get-ChildItem releases\
+
+    - name: Ensure 7-Zip available
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        if (-not (Get-Command 7z -ErrorAction SilentlyContinue)) {
+          Write-Host "7z not found. Installing via choco..."
+          choco install 7zip -y --no-progress
+        } else {
+          Write-Host "7z is available."
+        }
+
+    - name: Build single-file offline EXE (SFX)
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        
+        # Staging directory
+        New-Item -ItemType Directory -Path onefile -Force | Out-Null
+        Copy-Item releases\web-whisper-portable.exe onefile\ -Force
+        Copy-Item releases\whisper-gui-core.exe onefile\ -Force
+        
+        # Download ffmpeg static build (essentials)
+        $ffUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+        $ffZip = "ffmpeg.zip"
+        Write-Host "Downloading ffmpeg from $ffUrl"
+        Invoke-WebRequest -Uri $ffUrl -OutFile $ffZip -UseBasicParsing
+        Expand-Archive -Path $ffZip -DestinationPath ffmpeg -Force
+        $ffExe = Get-ChildItem -Path ffmpeg -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+        if ($ffExe) {
+          Copy-Item $ffExe.FullName onefile\ffmpeg.exe -Force
+          Write-Host "Bundled ffmpeg: $($ffExe.FullName)"
+        } else {
+          Write-Host "ffmpeg.exe not found after extraction"
+          exit 1
+        }
+        
+        # Download WebView2 Evergreen Standalone (offline) using winget
+        # This allows offline install at first run
+        $wvDir = "onefile"
+        Write-Host "Downloading WebView2 Evergreen Standalone (x64) via winget"
+        $winget = Get-Command winget -ErrorAction SilentlyContinue
+        if (-not $winget) { Write-Host "winget not found on runner"; exit 1 }
+        # Newer winget supports 'download' verb
+        $dlCmd = "winget download --id Microsoft.EdgeWebView2Runtime --architecture x64 --accept-source-agreements --accept-package-agreements --download-directory `"$wvDir`""
+        Write-Host $dlCmd
+        $LASTEXITCODE = 0
+        cmd /c $dlCmd
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "winget download failed (exit $LASTEXITCODE)"
+          exit 1
+        }
+        # Rename installer if present
+        $wvInst = Get-ChildItem $wvDir -Filter *WebView2*Installer*X64*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($wvInst) {
+          Move-Item $wvInst.FullName (Join-Path $wvDir 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe') -Force
+          Write-Host "Bundled WebView2 offline installer."
+        } else {
+          Write-Host "WebView2 offline installer not found in $wvDir"
+          exit 1
+        }
+        
+        # Create launcher script (runs offline WebView2 installer silently, then app)
+        $launcher = @'
+@echo off
+setlocal
+set SCRIPT_DIR=%~dp0
+if exist "%SCRIPT_DIR%MicrosoftEdgeWebView2RuntimeInstallerX64.exe" (
+  "%SCRIPT_DIR%MicrosoftEdgeWebView2RuntimeInstallerX64.exe" /silent /install >nul 2>&1
+)
+set PATH=%SCRIPT_DIR%;%PATH%
+start "" "%SCRIPT_DIR%web-whisper-portable.exe"
+endlocal
+'@
+        Set-Content -Path onefile\run.bat -Value $launcher -Encoding ASCII
+        
+        # Create SFX config for 7-Zip
+        $sfxCfg = @'
+;!@Install@!UTF-8!
+Title="Web Whisper (Offline Onefile)"
+RunProgram="run.bat"
+;!@InstallEnd@!
+'@
+        Set-Content -Path config.txt -Value $sfxCfg -Encoding UTF8
+        
+        # Create 7z archive of staging
+        & 7z a -t7z -mx=9 onefile.7z .\onefile\* | Out-Null
+        
+        # Find 7z SFX module
+        $sfx = "$Env:ProgramFiles\7-Zip\7zsd.sfx"
+        if (-not (Test-Path $sfx)) { $sfx = "$Env:ProgramFiles(x86)\7-Zip\7zsd.sfx" }
+        if (-not (Test-Path $sfx)) { Write-Host "7z SFX module not found"; exit 1 }
+        
+        # Build final single-file EXE by concatenation
+        cmd /c copy /b "$sfx"+"config.txt"+"onefile.7z" "releases\web-whisper-onefile.exe" > nul
+        
+        Write-Host "Created onefile: releases\\web-whisper-onefile.exe"
         
     - name: Upload Windows artifacts
       uses: actions/upload-artifact@v4
