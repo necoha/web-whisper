@@ -130,7 +130,7 @@ jobs:
             Write-Host "7z is available."
           }
 
-      - name: Build offline onefile EXE (SFX)
+      - name: Build lite onefile EXE (SFX)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -138,54 +138,60 @@ jobs:
           Copy-Item releases\web-whisper-portable.exe onefile\ -Force
           Copy-Item releases\whisper-gui-core.exe onefile\ -Force
 
-          # ffmpeg bundle
-          $ffUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-          $ffZip = "ffmpeg.zip"
-          Invoke-WebRequest -Uri $ffUrl -OutFile $ffZip -UseBasicParsing
-          Expand-Archive -Path $ffZip -DestinationPath ffmpeg -Force
-          $ffExe = Get-ChildItem -Path ffmpeg -Recurse -Filter ffmpeg.exe | Select-Object -First 1
-          if (-not $ffExe) { throw "ffmpeg.exe not found after extraction" }
-          Copy-Item $ffExe.FullName onefile\ffmpeg.exe -Force
+          # Lite launcher (downloads on first run)
+          $launcherPs1 = @'
+Param()
+$ErrorActionPreference = "Stop"
+try {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+} catch {}
 
-          # WebView2 offline via winget (fallback to bootstrapper if needed)
-          $wvDir = "onefile"
-          $winget = Get-Command winget -ErrorAction SilentlyContinue
-          $wvOk = $false
-          if ($winget) {
-            $dlCmd = "winget download --id Microsoft.EdgeWebView2Runtime --architecture x64 --accept-source-agreements --accept-package-agreements --download-directory `"$wvDir`""
-            cmd /c $dlCmd
-            if ($LASTEXITCODE -eq 0) {
-              $wvInst = Get-ChildItem $wvDir -Filter *WebView2*Installer*X64*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-              if ($wvInst) {
-                Move-Item $wvInst.FullName (Join-Path $wvDir 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe') -Force
-                $wvOk = $true
-              }
-            }
-          }
-          if (-not $wvOk) {
-            # Fallback: Evergreen bootstrapper (requires internet at first run)
-            Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile (Join-Path $wvDir 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe') -UseBasicParsing
-          }
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$BinDir = Join-Path $env:LOCALAPPDATA 'WebWhisper\bin'
+New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
 
-          # Launcher
-          $launcher = @'
-@echo off
-setlocal
-set SCRIPT_DIR=%~dp0
-if exist "%SCRIPT_DIR%MicrosoftEdgeWebView2RuntimeInstallerX64.exe" (
-  "%SCRIPT_DIR%MicrosoftEdgeWebView2RuntimeInstallerX64.exe" /silent /install >nul 2>&1
-)
-set PATH=%SCRIPT_DIR%;%PATH%
-start "" "%SCRIPT_DIR%web-whisper-portable.exe"
-endlocal
+# Ensure ffmpeg
+$FfmpegPath = Join-Path $BinDir 'ffmpeg.exe'
+if (-not (Test-Path $FfmpegPath)) {
+  Write-Host 'Downloading ffmpeg (first run only)...'
+  $ffUrl = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+  $tmpZip = Join-Path $env:TEMP ('ffmpeg_' + [Guid]::NewGuid().ToString() + '.zip')
+  Invoke-WebRequest -Uri $ffUrl -OutFile $tmpZip -UseBasicParsing
+  $tmpDir = Join-Path $env:TEMP ('ffmpeg_' + [Guid]::NewGuid().ToString())
+  New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+  Expand-Archive -Path $tmpZip -DestinationPath $tmpDir -Force
+  $ffExe = Get-ChildItem -Path $tmpDir -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+  if (-not $ffExe) { throw 'ffmpeg.exe not found in downloaded archive' }
+  Copy-Item $ffExe.FullName $FfmpegPath -Force
+}
+
+# Ensure WebView2 (bootstrapper online install; if already installed it will no-op quickly)
+$Bootstrapper = Join-Path $ScriptDir 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe'
+if (-not (Test-Path $Bootstrapper)) {
+  try {
+    Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $Bootstrapper -UseBasicParsing
+  } catch {
+    Write-Warning 'Failed to download WebView2 bootstrapper. Continuing; app may prompt for runtime.'
+  }
+}
+if (Test-Path $Bootstrapper) {
+  Start-Process -FilePath $Bootstrapper -ArgumentList '/silent','/install' -Wait -NoNewWindow
+}
+
+# Prepend our bin to PATH for this process
+$env:PATH = "$BinDir;" + $env:PATH
+
+# Launch app
+$App = Join-Path $ScriptDir 'web-whisper-portable.exe'
+Start-Process -FilePath $App -WorkingDirectory $ScriptDir
 '@
-          Set-Content -Path onefile\run.bat -Value $launcher -Encoding ASCII
+          Set-Content -Path onefile\run.ps1 -Value $launcherPs1 -Encoding UTF8
 
-          # SFX config
+          # SFX config (PowerShell launcher)
           $sfxCfg = @'
 ;!@Install@!UTF-8!
-Title="Web Whisper (Offline Onefile)"
-RunProgram="run.bat"
+Title="Web Whisper (Onefile Lite)"
+RunProgram="powershell -NoProfile -ExecutionPolicy Bypass -File run.ps1"
 ;!@InstallEnd@!
 '@
           Set-Content -Path config.txt -Value $sfxCfg -Encoding UTF8
@@ -196,20 +202,20 @@ RunProgram="run.bat"
           if (-not (Test-Path $sfx)) { $sfx = "$Env:ProgramFiles(x86)\7-Zip\7zsd.sfx" }
           if (-not (Test-Path $sfx)) { throw "7z SFX module not found" }
           New-Item -ItemType Directory -Path releases -Force | Out-Null
-          cmd /c copy /b "$sfx"+"config.txt"+"onefile.7z" "releases\web-whisper-onefile.exe" > nul
+          cmd /c copy /b "$sfx"+"config.txt"+"onefile.7z" "releases\web-whisper-onefile-lite.exe" > nul
 
-      - name: Create GitHub Release (onefile)
+      - name: Create GitHub Release (onefile lite)
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ inputs.version }}
-          name: Web Whisper ${{ inputs.version }}
+          name: Web Whisper ${{ inputs.version }} (Lite)
           files: releases/*
           generate_release_notes: true
           body: |
-            ## Web Whisper ${{ inputs.version }} (Onefile)
+            ## Web Whisper ${{ inputs.version }} (Onefile Lite)
 
-            - Includes offline onefile: `web-whisper-onefile.exe`
+            - Includes lightweight onefile: `web-whisper-onefile-lite.exe`
+            - First run downloads WebView2 Runtime and ffmpeg automatically, then caches under `%LOCALAPPDATA%\WebWhisper\bin`.
             - Also provides portable, MSI, NSIS, and backend executables
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
