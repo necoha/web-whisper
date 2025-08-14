@@ -206,17 +206,20 @@ async fn start_gradio_server(
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         
-        // Add ffmpeg paths to environment (Windows)
+        // Add ffmpeg paths to environment (Windows), including Lite cache path
         let current_path = env::var("PATH").unwrap_or_default();
-        let ffmpeg_paths = vec![
-            "C:\\ffmpeg\\bin",
-            "C:\\Program Files\\FFmpeg\\bin",
-            "C:\\Program Files (x86)\\FFmpeg\\bin",
+        let mut ffmpeg_paths: Vec<String> = vec![
+            "C:\\ffmpeg\\bin".to_string(),
+            "C:\\Program Files\\FFmpeg\\bin".to_string(),
+            "C:\\Program Files (x86)\\FFmpeg\\bin".to_string(),
         ];
+        if let Ok(local_appdata) = env::var("LOCALAPPDATA") {
+            ffmpeg_paths.push(format!("{}\\\\WebWhisper\\\\bin", local_appdata));
+        }
         
         let mut new_path = current_path.clone();
         for ffmpeg_path in ffmpeg_paths {
-            if !new_path.contains(ffmpeg_path) {
+            if !new_path.contains(&ffmpeg_path) {
                 new_path = format!("{};{}", ffmpeg_path, new_path);
             }
         }
@@ -554,8 +557,8 @@ async fn transcribe_audio(
                 candidates.into_iter().find(|p| p.join("transcribe_simple.py").exists())
                     .unwrap_or_else(|| PathBuf::from("backend"))
             } else {
-                // macOS/Linux: Current development path
-                PathBuf::from("/Users/ktsutsum/Documents/claude/web-whisper/backend")
+                // macOS/Linux: Default to repo-relative 'backend'
+                PathBuf::from("backend")
             };
             
             if candidate1.join("transcribe_simple.py").exists() {
@@ -598,17 +601,20 @@ async fn transcribe_audio(
         ])
         .current_dir(&backend_dir);
     
-    // Add ffmpeg path to environment (Windows)
+    // Add ffmpeg path to environment (Windows), including Lite cache path
     let current_path = env::var("PATH").unwrap_or_default();
-    let ffmpeg_paths = vec![
-        "C:\\ffmpeg\\bin",
-        "C:\\Program Files\\FFmpeg\\bin",
-        "C:\\Program Files (x86)\\FFmpeg\\bin",
+    let mut ffmpeg_paths: Vec<String> = vec![
+        "C:\\ffmpeg\\bin".to_string(),
+        "C:\\Program Files\\FFmpeg\\bin".to_string(),
+        "C:\\Program Files (x86)\\FFmpeg\\bin".to_string(),
     ];
+    if let Ok(local_appdata) = env::var("LOCALAPPDATA") {
+        ffmpeg_paths.push(format!("{}\\\\WebWhisper\\\\bin", local_appdata));
+    }
     
     let mut new_path = current_path.clone();
     for ffmpeg_path in ffmpeg_paths {
-        if !new_path.contains(ffmpeg_path) {
+        if !new_path.contains(&ffmpeg_path) {
             new_path = format!("{};{}", ffmpeg_path, new_path);
         }
     }
