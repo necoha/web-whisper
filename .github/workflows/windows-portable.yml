@@ -65,12 +65,12 @@ jobs:
           cd frontend
           pnpm install --frozen-lockfile=false
 
-      - name: Build Tauri app (app bundle only)
+      - name: Build Tauri app (nsis bundle)
         env:
           RUSTFLAGS: -C target-feature=+crt-static
         run: |
           cd frontend
-          pnpm tauri build -- --bundles app --target x86_64-pc-windows-msvc
+          pnpm tauri build -- --bundles nsis --target x86_64-pc-windows-msvc
 
       - name: Package portable EXE (UTF-8 safe)
         shell: pwsh

@@ -48,26 +48,45 @@ def build_backend():
         raise FileNotFoundError(f"Sidecar exe not found: {exe}")
     return exe
 
-def build_frontend():
-    print("[2/4] Building Tauri app (app bundle)...")
-    # Build only the app bundle to avoid installer-only outputs
-    run(["npx", "pnpm", "tauri", "build", "--", "--bundles", "app", "--target", "x86_64-pc-windows-msvc"], cwd=FRONTEND)
+def _load_product_name() -> str:
+    import json
+    conf = FRONTEND / "src-tauri" / "tauri.conf.json"
+    with open(conf, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return data.get("productName", "Web Whisper")
 
-    # App bundle directory layout
-    bundle_app = TAURI_TARGET / "bundle" / "app"
-    if not bundle_app.exists():
-        raise FileNotFoundError(f"Tauri app bundle not found: {bundle_app}")
-    # Find the single app folder under app/ (productName)
-    subdirs = [p for p in bundle_app.iterdir() if p.is_dir()]
-    if not subdirs:
-        raise FileNotFoundError(f"No app folder under: {bundle_app}")
-    app_dir = subdirs[0]
-    # Detect exe name
-    exes = list(app_dir.glob("*.exe"))
-    if not exes:
-        raise FileNotFoundError(f"No exe found under: {app_dir}")
-    app_exe = exes[0]
+def _find_app_exe() -> tuple[Path, Path]:
+    product = _load_product_name()
+    bundle_root = TAURI_TARGET / "bundle"
+    if not bundle_root.exists():
+        raise FileNotFoundError(f"Tauri bundle directory not found: {bundle_root}")
+
+    # Prefer exact productName.exe match anywhere under bundle/
+    target_name = f"{product}.exe"
+    candidates = [p for p in bundle_root.rglob(target_name)]
+
+    # Fallback: any exe containing product name, excluding obvious installer names
+    if not candidates:
+        low = product.lower().replace(" ", "")
+        for p in bundle_root.rglob("*.exe"):
+            name = p.name.lower()
+            simple = name.replace(" ", "")
+            if low in simple and not any(x in name for x in ["setup", "installer", "nsis", "msi"]):
+                candidates.append(p)
+
+    if not candidates:
+        raise FileNotFoundError(f"Could not locate app exe for productName '{product}' under {bundle_root}")
+
+    # Choose the largest as a heuristic (avoid tiny stubs)
+    app_exe = max(candidates, key=lambda p: p.stat().st_size)
+    app_dir = app_exe.parent
     return app_dir, app_exe
+
+def build_frontend():
+    print("[2/4] Building Tauri app (bundle)...")
+    # Build with default bundles or nsis; caller (CI) may build separately
+    run(["npx", "pnpm", "tauri", "build", "--", "--target", "x86_64-pc-windows-msvc"], cwd=FRONTEND)
+    return _find_app_exe()
 
 def stage_files(app_dir: Path, app_exe: Path, sidecar_exe: Path):
     print("[3/4] Staging files for portable package...")
@@ -120,18 +139,8 @@ def main():
         sidecar_exe = build_backend()
         app_dir, app_exe = build_frontend()
     else:
-        # Try to discover existing build artifacts
-        bundle_app = TAURI_TARGET / "bundle" / "app"
-        subdirs = [p for p in bundle_app.iterdir() if p.is_dir()] if bundle_app.exists() else []
-        if not subdirs:
-            print("No existing Tauri app artifacts found. Remove --skip-build.")
-            sys.exit(1)
-        app_dir = subdirs[0]
-        exes = list(app_dir.glob("*.exe"))
-        if not exes:
-            print("No Tauri exe found. Remove --skip-build.")
-            sys.exit(1)
-        app_exe = exes[0]
+        # Try to discover existing build artifacts (nsis/app agnostic)
+        app_dir, app_exe = _find_app_exe()
         if not sidecar_exe.exists():
             print("Sidecar exe missing. Remove --skip-build.")
             sys.exit(1)
@@ -148,4 +157,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
