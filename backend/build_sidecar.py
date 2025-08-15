@@ -117,7 +117,8 @@ def build_executable():
     
     if not spec_path.exists():
         print(f"❌ Spec file {spec_path.name} not found at {spec_path}!")
-        return False
+        print("⚠️  Falling back to CLI-based PyInstaller build without spec...")
+        return build_executable_fallback()
     
     print(f"🔨 Building executable for {system}...")
     
@@ -154,9 +155,53 @@ def build_executable():
         else:
             print(f"❌ Expected output file {expected_output} not found")
             return False
-            
+
     except subprocess.CalledProcessError as e:
         print(f"❌ Build failed: {e}")
+        print(f"stdout: {e.stdout}")
+        print(f"stderr: {e.stderr}")
+        return False
+
+def build_executable_fallback():
+    """Fallback build without spec using PyInstaller CLI flags."""
+    print("🔧 Using fallback PyInstaller CLI configuration")
+    system = platform.system()
+    sep = ';' if system == 'Windows' else ':'
+    add_data = [
+        f"{(BASE_DIR / 'configs')}{sep}configs",
+        f"{(BASE_DIR / 'scripts')}{sep}scripts",
+    ]
+    cmd = [
+        "pyinstaller",
+        "--clean",
+        "--onefile",
+        "--name", "whisper-gui-core",
+        "--hidden-import", "mlx_whisper",
+        "--hidden-import", "gradio",
+        "--hidden-import", "safehttpx",
+        # Collect resources for common packages
+        "--collect-all", "mlx_whisper",
+        "--collect-all", "gradio",
+        "--collect-data", "gradio_client",
+        "--collect-data", "groovy",
+    ]
+    for d in add_data:
+        cmd.extend(["--add-data", d])
+    cmd.append(str(BASE_DIR / "main.py"))
+
+    try:
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        print("✅ Fallback build completed successfully")
+        expected_output = BASE_DIR / ("dist/whisper-gui-core.exe" if system == "Windows" else "dist/whisper-gui-core")
+        if expected_output.exists():
+            size_mb = expected_output.stat().st_size / (1024 * 1024)
+            print(f"📦 Executable created: {expected_output} ({size_mb:.1f} MB)")
+            return True
+        else:
+            print(f"❌ Expected output not found: {expected_output}")
+            return False
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Fallback build failed: {e}")
         print(f"stdout: {e.stdout}")
         print(f"stderr: {e.stderr}")
         return False
@@ -168,7 +213,7 @@ def test_executable():
     
     if not executable.exists():
         print(f"❌ Executable not found: {executable}")
-        return False
+    return False
     
     print("🧪 Testing executable...")
     
