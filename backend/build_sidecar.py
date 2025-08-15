@@ -50,11 +50,13 @@ def check_requirements():
     print("✅ All required packages are installed")
     return True
 
+BASE_DIR = Path(__file__).parent.resolve()
+
 def clean_build_dirs():
     """Clean previous build directories."""
-    dirs_to_clean = ['build', 'dist', '__pycache__']
+    dirs_to_clean = [BASE_DIR / 'build', BASE_DIR / 'dist', BASE_DIR / '__pycache__']
     for dir_name in dirs_to_clean:
-        if os.path.exists(dir_name):
+        if dir_name.exists():
             print(f"🧹 Cleaning {dir_name}...")
             shutil.rmtree(dir_name)
 
@@ -63,8 +65,8 @@ def patch_main_py():
     Patch main.py to use our optimized GPU auto-detection.
     Creates a backup and modifies the main.py to use our patch.
     """
-    main_py_path = Path("main.py")
-    backup_path = Path("main.py.backup")
+    main_py_path = BASE_DIR / "main.py"
+    backup_path = BASE_DIR / "main.py.backup"
     
     if not main_py_path.exists():
         print("❌ main.py not found!")
@@ -111,27 +113,27 @@ def build_executable():
     system = platform.system()
     
     # Determine the correct spec file and build command
-    spec_file = "whisper-gui-core.spec"
+    spec_path = BASE_DIR / "whisper-gui-core.spec"
     
-    if not os.path.exists(spec_file):
-        print(f"❌ Spec file {spec_file} not found!")
+    if not spec_path.exists():
+        print(f"❌ Spec file {spec_path.name} not found at {spec_path}!")
         return False
     
     print(f"🔨 Building executable for {system}...")
     
     # PyInstaller command
-    cmd = ["pyinstaller", "--clean", spec_file]
+    cmd = ["pyinstaller", "--clean", str(spec_path)]
     
     # Add platform-specific options
     if system == "Darwin":
         # macOS Universal binary
         cmd.extend(["--target-arch", "universal2"])
-        expected_output = "dist/whisper-gui-core"
+        expected_output = BASE_DIR / "dist/whisper-gui-core"
     elif system == "Windows":
-        expected_output = "dist/whisper-gui-core.exe"
+        expected_output = BASE_DIR / "dist/whisper-gui-core.exe"
     else:
         # Linux
-        expected_output = "dist/whisper-gui-core"
+        expected_output = BASE_DIR / "dist/whisper-gui-core"
     
     try:
         # Run PyInstaller
@@ -139,8 +141,8 @@ def build_executable():
         print("✅ Build completed successfully")
         
         # Check if the executable was created
-        if os.path.exists(expected_output):
-            file_size = os.path.getsize(expected_output) / (1024 * 1024)  # MB
+        if expected_output.exists():
+            file_size = expected_output.stat().st_size / (1024 * 1024)  # MB
             print(f"📦 Executable created: {expected_output} ({file_size:.1f} MB)")
             
             # Make executable (for Unix systems)
@@ -162,9 +164,9 @@ def build_executable():
 def test_executable():
     """Test the built executable."""
     system = platform.system()
-    executable = "dist/whisper-gui-core.exe" if system == "Windows" else "dist/whisper-gui-core"
+    executable = BASE_DIR / ("dist/whisper-gui-core.exe" if system == "Windows" else "dist/whisper-gui-core")
     
-    if not os.path.exists(executable):
+    if not executable.exists():
         print(f"❌ Executable not found: {executable}")
         return False
     
@@ -172,7 +174,7 @@ def test_executable():
     
     try:
         # Test with --help flag
-        result = subprocess.run([executable, "--help"], 
+        result = subprocess.run([str(executable), "--help"], 
                               capture_output=True, text=True, timeout=30)
         
         if result.returncode == 0:
