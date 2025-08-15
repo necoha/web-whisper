@@ -1,0 +1,84 @@
+name: build-windows-portable
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Enable corepack (pnpm)
+        run: |
+          corepack enable
+          pnpm -v
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install system dependencies (NSIS, FFmpeg)
+        run: |
+          choco install -y nsis ffmpeg
+
+      - name: Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pyinstaller faster-whisper ctranslate2
+
+      - name: Build Python sidecar (PyInstaller)
+        run: |
+          cd backend
+          python build_sidecar.py
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          pnpm install --frozen-lockfile=false
+
+      - name: Build Tauri app (app bundle only)
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          cd frontend
+          pnpm tauri build -- --bundles app --target x86_64-pc-windows-msvc
+
+      - name: Package portable EXE (NSIS)
+        run: |
+          python windows-release/prepare_portable.py --skip-build --output WebWhisper-Portable-${{ github.sha }}.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WebWhisper-Portable-${{ github.sha }}
+          path: windows-release/WebWhisper-Portable-${{ github.sha }}.exe
+          if-no-files-found: error
+
+      - name: Create GitHub Release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: windows-release/WebWhisper-Portable-${{ github.sha }}.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

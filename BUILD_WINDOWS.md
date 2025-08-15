@@ -91,7 +91,32 @@ pnpm tauri build --target x86_64-pc-windows-msvc
 
 ## 配布用パッケージ
 
-### オールインワンパッケージの作成
+### ポータブル版（単一EXE）
+
+インストール不要で実行できる「単一EXE」を作成します。NSISで自己解凍し、一時フォルダに展開→実行→終了時にクリーンアップします。
+
+前提:
+- NSIS（`makensis` が PATH にあること）
+- 既に backend 側car と Tauri アプリがビルド可能であること
+- 任意: WebView2 Fixed Runtime を同梱したい場合、`windows-release/WebView2Runtime/` に配置
+
+手順:
+```powershell
+# リポジトリルートで実行
+python windows-release/prepare_portable.py --output WebWhisper-Portable.exe
+
+# 既存のビルド成果物を使う場合（再ビルドをスキップ）
+python windows-release/prepare_portable.py --skip-build --output WebWhisper-Portable.exe
+```
+
+生成物:
+- `windows-release/WebWhisper-Portable.exe`（単一の自己解凍EXE）
+
+注意:
+- WebView2 ランタイムが未インストール環境では起動に失敗する場合があります。固定版ランタイム（Fixed Runtime）を `windows-release/WebView2Runtime/` に置くと同梱され、起動時に `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER` が自動設定されます。
+- 既存の Tauri `nsis`/`msi` バンドルは生成しません（`app` バンドルのみ）。
+
+### オールインワンパッケージ（フォルダ配布）
 ```powershell
 # 配布用フォルダ作成
 mkdir web-whisper-windows
