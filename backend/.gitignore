@@ -10,6 +10,9 @@ ruff.toml
 **/build/
 **/dist/
 **/*.spec
+# Keep our PyInstaller spec files tracked
+!whisper-gui-core.spec
+!whisper-gui-core-simple.spec
 **/*.AppImage
 builder/*.AppDir/usr/bin/
 **/*exe
