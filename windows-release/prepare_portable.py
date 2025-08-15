@@ -55,32 +55,56 @@ def _load_product_name() -> str:
         data = json.load(f)
     return data.get("productName", "Web Whisper")
 
+def _load_binary_name() -> str:
+    """Read Cargo package name to determine exe name (e.g., web-whisper.exe)."""
+    import tomllib
+    cargo = FRONTEND / "src-tauri" / "Cargo.toml"
+    with open(cargo, "rb") as f:
+        data = tomllib.load(f)
+    pkg = data.get("package", {})
+    name = pkg.get("name", "web-whisper")
+    return f"{name}.exe"
+
 def _find_app_exe() -> tuple[Path, Path]:
+    """Locate the built app exe across possible Tauri layouts.
+
+    Search priority:
+    1) Release binary beside target (Cargo-built): target/.../release/<crate>.exe
+    2) Any exe matching productName in bundle/ (nsis/app) excluding installers
+    3) Any exe under bundle/app/<ProductName>/
+    """
     product = _load_product_name()
+    binary_name = _load_binary_name()
+
+    # 1) Direct release binary
+    release_exe = TAURI_TARGET / binary_name
+    if release_exe.exists():
+        return release_exe.parent, release_exe
+
+    # 2) Look under bundle/ for product exe
     bundle_root = TAURI_TARGET / "bundle"
-    if not bundle_root.exists():
-        raise FileNotFoundError(f"Tauri bundle directory not found: {bundle_root}")
+    candidates: list[Path] = []
+    if bundle_root.exists():
+        # Exact productName.exe
+        exact = list(bundle_root.rglob(f"{product}.exe"))
+        candidates.extend(exact)
+        if not candidates:
+            low = product.lower().replace(" ", "")
+            for p in bundle_root.rglob("*.exe"):
+                name = p.name.lower()
+                if any(x in name for x in ["setup", "installer", "nsis", "msi"]):
+                    continue
+                simple = name.replace(" ", "")
+                if low in simple:
+                    candidates.append(p)
 
-    # Prefer exact productName.exe match anywhere under bundle/
-    target_name = f"{product}.exe"
-    candidates = [p for p in bundle_root.rglob(target_name)]
+    if candidates:
+        app_exe = max(candidates, key=lambda p: p.stat().st_size)
+        return app_exe.parent, app_exe
 
-    # Fallback: any exe containing product name, excluding obvious installer names
-    if not candidates:
-        low = product.lower().replace(" ", "")
-        for p in bundle_root.rglob("*.exe"):
-            name = p.name.lower()
-            simple = name.replace(" ", "")
-            if low in simple and not any(x in name for x in ["setup", "installer", "nsis", "msi"]):
-                candidates.append(p)
-
-    if not candidates:
-        raise FileNotFoundError(f"Could not locate app exe for productName '{product}' under {bundle_root}")
-
-    # Choose the largest as a heuristic (avoid tiny stubs)
-    app_exe = max(candidates, key=lambda p: p.stat().st_size)
-    app_dir = app_exe.parent
-    return app_dir, app_exe
+    raise FileNotFoundError(
+        f"Could not locate app exe for productName '{product}' or binary '{binary_name}' under {TAURI_TARGET}"
+    )
 
 def build_frontend():
     print("[2/4] Building Tauri app (bundle)...")
@@ -94,13 +118,13 @@ def stage_files(app_dir: Path, app_exe: Path, sidecar_exe: Path):
         shutil.rmtree(STAGE)
     STAGE.mkdir(parents=True, exist_ok=True)
 
-    # Copy Tauri app dir contents (exe + resources)
-    for item in app_dir.iterdir():
-        dest = STAGE / item.name
-        if item.is_dir():
-            shutil.copytree(item, dest)
-        else:
-            shutil.copy2(item, dest)
+    # Copy Tauri app executable and nearby resources if present
+    shutil.copy2(app_exe, STAGE / app_exe.name)
+    # Copy common runtime folders if they exist (resource locations vary by bundler)
+    for folder in ("resources", "data", "bin"):
+        src = app_dir / folder
+        if src.exists() and src.is_dir():
+            shutil.copytree(src, STAGE / folder)
 
     # Ensure sidecar is next to app exe
     shutil.copy2(sidecar_exe, STAGE / sidecar_exe.name)
