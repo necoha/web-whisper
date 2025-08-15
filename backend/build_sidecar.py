@@ -33,8 +33,11 @@ def check_requirements():
         required_packages.extend(['faster-whisper', 'ctranslate2'])
     
     missing_packages = []
+    name_map = {
+        'pyinstaller': 'PyInstaller',  # real importable module name
+    }
     for package in required_packages:
-        mod_name = package.replace('-', '_')
+        mod_name = name_map.get(package, package).replace('-', '_')
         if importlib.util.find_spec(mod_name) is None:
             missing_packages.append(package)
     
