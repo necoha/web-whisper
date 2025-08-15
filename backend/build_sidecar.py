@@ -5,8 +5,17 @@ Build script for creating cross-platform whisper-gui-core sidecar executables.
 This script handles the PyInstaller compilation for both macOS and Windows.
 """
 
-import os
-import sys
+import os, sys
+# Ensure UTF-8 stdout/stderr to avoid UnicodeEncodeError on Windows CI
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 import platform
 import subprocess
 import shutil
